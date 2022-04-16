@@ -5,6 +5,7 @@ use std::fmt::Formatter;
 use std::str::SplitWhitespace;
 use num_traits::ToPrimitive;
 use strum_macros;
+use async_graphql::Enum;
 
 // code assumes our field is at least 1x1
 const MIN_DIM: u8 = 1;
@@ -21,7 +22,7 @@ const SERIALIZATION_ROW_SEPARATOR: &str = "\n";
 
 // Vs. red and yellow for connect-4. Because it's a statement. "We're not connect-4!"
 // we assume Red is always going first. like in Chess.
-#[derive(PartialEq, Debug, Clone, Copy, strum_macros::Display)]
+#[derive(Enum, Eq, PartialEq, Debug, Clone, Copy, strum_macros::Display)]
 pub enum Player {
     Red,
     Blue
@@ -29,7 +30,7 @@ pub enum Player {
 
 const FIRST_PLAYER: Player = Player::Red;
 
-#[derive(PartialEq, Debug, Clone, Copy, strum_macros::Display)]
+#[derive(Enum, Eq, PartialEq, Debug, Clone, Copy, strum_macros::Display)]
 pub enum Side {
     Left,
     Right
@@ -44,7 +45,7 @@ type Cell = Option<Player>;
 type Field = Vec<Cell>;
 
 #[derive(Debug)]
-struct State {
+pub struct State {
     size_x: u8,
     size_y: u8,
     coords_history: CoordsHistory, // actually, we can do with Only this field
@@ -57,8 +58,12 @@ fn calc_field_index(size_x: u8, x: u8, y: u8) -> u8 {
     y * size_x/*or size_y?*/ + x
 }
 
+fn calc_coords(size_x: u8, index: u8) -> Coords {
+    (index % size_x, index / size_x)
+}
+
 // anything to do directly with the "coords" on the field
-trait MatrixOperations {
+pub trait MatrixOperations {
     fn calc_field_index(&self, x: u8, y: u8) -> u8;
     fn get_cell(&self, x: u8, y: u8) -> Result<Cell, String>;
     fn next_cell_towards(&self, direction: Side, y: u8) -> Result<Option<Coords>, String>;
@@ -177,6 +182,7 @@ impl GameOperations for State {
 pub trait GameSerializations<T: MatrixOperations = Self> {
     fn serialize(&self) -> String;
     fn deserialize(s: String) -> Result<T, String>;
+    fn to_rows(&self) -> Vec<Vec<Option<Player>>>; // for network, keep here or...?
 }
 
 fn validate_continuous<T: Copy>(v: &Vec<Option<T>>) -> Result<Vec<T>, String> {
@@ -246,6 +252,14 @@ impl GameSerializations for State {
             state.field[index as usize] = Some(player.clone());
         }
         Ok(state)
+    }
+    fn to_rows(&self) -> Vec<Vec<Option<Player>>> {
+        let mut res = vec![vec![None; self.size_x as usize]; self.size_y as usize];
+        for (i, cell) in self.field.iter().enumerate() {
+            let coords = calc_coords(self.size_x, i as u8);
+            res[coords.1 as usize][coords.0 as usize] = cell.clone();
+        }
+        res
     }
 }
 
@@ -361,7 +375,7 @@ mod tests {
         assert_eq!(GAME_NAIVE_HORIZONTAL_WON.to_string().trim(), state.serialize())
     }
     #[test]
-    fn winner_horisontal() {
+    fn winner_horizontal() {
         let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string()).unwrap();
         assert!(!state.is_stalemate());
         assert_eq!(Some(Red), state.try_winner())

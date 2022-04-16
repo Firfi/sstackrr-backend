@@ -1,30 +1,60 @@
-mod game;
+//! ```not_rust
+//! cargo run
+//! ```
 
+mod game;
+mod graphql;
+mod db;
+
+use tokio::time::Duration;
+use std::env;
+
+use async_graphql::{
+    http::{playground_source, GraphQLPlaygroundConfig},
+    EmptyMutation, EmptySubscription, Request, Response, Schema,
+};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
-    routing::{get, post},
-    http::StatusCode,
-    response::IntoResponse,
+    extract::Extension,
+    response::{Html, IntoResponse},
+    routing::get,
     Json, Router,
+    http::Method,
 };
 use std::net::SocketAddr;
+use tower_http::cors::{Any, CorsLayer, Origin};
+use crate::graphql::{GraphQlSchema, QueryRoot};
+
+//async fn graphql_handler(schema: Extension<OrderBookSchema>, req: GraphQLRequest) -> GraphQLResponse {
+async fn graphql_handler(schema: Extension<GraphQlSchema>, req: GraphQLRequest) -> GraphQLResponse {
+    schema.execute(req.into_inner()).await.into()
+}
+//
+async fn graphql_playground() -> impl IntoResponse {
+    Html(playground_source(GraphQLPlaygroundConfig::new("/").subscription_endpoint("/ws")))
+}
 
 #[tokio::main]
 async fn main() {
-    // build our application with a route
+
+    let PORT = env::var("PORT").unwrap_or("3000".to_string());
+
+    let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
+        .finish();
+
     let app = Router::new()
-        // `GET /` goes to `root`
-        .route("/", get(root));
+        .route("/", get(graphql_playground).post(graphql_handler))
+        .route("/ws", GraphQLSubscription::new(schema.clone()))
+        .layer(Extension(schema))
+        .layer(CorsLayer::new()
+                   .allow_origin(Any)
+                   .allow_methods(Any)
+                   .allow_headers(Any),
+        );
 
-    // run our app with hyper
-    // `axum::Server` is a re-export of `hyper::Server`
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-}
+    println!("{}", format!("Playground: http://localhost:{}", &PORT));
 
-// basic handler that responds with a static string
-async fn root() -> &'static str {
-    "Hello, World!"
+    tokio::join!(axum::Server::bind(&format!("0.0.0.0:{}", &PORT).parse().unwrap())
+        .serve(app.into_make_service()));
+
 }
