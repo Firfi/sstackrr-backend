@@ -1,10 +1,14 @@
 //! ```not_rust
 //! cargo run
 //! ```
-
+#[macro_use]
+extern crate diesel;
+extern crate dotenv;
+use dotenv::dotenv;
 mod game;
 mod graphql;
 mod db;
+mod db_schema;
 
 use tokio::time::Duration;
 use std::env;
@@ -23,7 +27,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer, Origin};
-use crate::graphql::{GraphQlSchema, QueryRoot};
+use crate::graphql::{GraphQlSchema, MutationRoot, QueryRoot};
 
 //async fn graphql_handler(schema: Extension<OrderBookSchema>, req: GraphQLRequest) -> GraphQLResponse {
 async fn graphql_handler(schema: Extension<GraphQlSchema>, req: GraphQLRequest) -> GraphQLResponse {
@@ -36,10 +40,10 @@ async fn graphql_playground() -> impl IntoResponse {
 
 #[tokio::main]
 async fn main() {
-
+    dotenv().ok();
     let PORT = env::var("PORT").unwrap_or("3000".to_string());
 
-    let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
+    let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)
         .finish();
 
     let app = Router::new()

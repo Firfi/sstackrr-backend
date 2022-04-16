@@ -6,6 +6,7 @@ use std::str::SplitWhitespace;
 use num_traits::ToPrimitive;
 use strum_macros;
 use async_graphql::Enum;
+use crate::db::GameStateSerialized;
 
 // code assumes our field is at least 1x1
 const MIN_DIM: u8 = 1;
@@ -181,7 +182,7 @@ impl GameOperations for State {
 
 pub trait GameSerializations<T: MatrixOperations = Self> {
     fn serialize(&self) -> String;
-    fn deserialize(s: String) -> Result<T, String>;
+    fn deserialize(s: GameStateSerialized) -> Result<T, String>;
     fn to_rows(&self) -> Vec<Vec<Option<Player>>>; // for network, keep here or...?
 }
 
@@ -243,10 +244,10 @@ impl GameSerializations for State {
             .collect::<Vec<String>>().join(SERIALIZATION_ROW_SEPARATOR);
     }
 
-    fn deserialize(s: String) -> Result<State, String> {
-        let (width, height) = validate_serialized_dimensions(&s)?;
+    fn deserialize(s: GameStateSerialized) -> Result<State, String> {
+        let (width, height) = validate_serialized_dimensions(&s.0)?;
         let mut state = State::new(width, height);
-        for (coords, player) in deserialize_intermediate_history(&s)?.iter() {
+        for (coords, player) in deserialize_intermediate_history(&s.0)?.iter() {
             state.coords_history.push(coords.clone());
             let index = calc_field_index(height, coords.0, coords.1);
             state.field[index as usize] = Some(player.clone());
@@ -371,42 +372,42 @@ mod tests {
     "#;
     #[test]
     fn serializations() {
-        let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string()).unwrap();
+        let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string().into()).unwrap();
         assert_eq!(GAME_NAIVE_HORIZONTAL_WON.to_string().trim(), state.serialize())
     }
     #[test]
     fn winner_horizontal() {
-        let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string()).unwrap();
+        let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string().into()).unwrap();
         assert!(!state.is_stalemate());
         assert_eq!(Some(Red), state.try_winner())
     }
     #[test]
     fn winner_vertical() {
-        let state = super::State::deserialize(GAME_NAIVE_VERTICAL_WON.to_string()).unwrap();
+        let state = super::State::deserialize(GAME_NAIVE_VERTICAL_WON.to_string().into()).unwrap();
         assert!(!state.is_stalemate());
         assert_eq!(Some(Red), state.try_winner())
     }
     #[test]
     fn winner_vertical_blue() {
-        let state = super::State::deserialize(GAME_VERTICAL_BLUE_WON.to_string()).unwrap();
+        let state = super::State::deserialize(GAME_VERTICAL_BLUE_WON.to_string().into()).unwrap();
         assert!(!state.is_stalemate());
         assert_eq!(Some(Blue), state.try_winner())
     }
     #[test]
     fn game_ongoing() {
-        let state = super::State::deserialize(GAME_ONGOING.to_string()).unwrap();
+        let state = super::State::deserialize(GAME_ONGOING.to_string().into()).unwrap();
         assert!(!state.is_stalemate());
         assert!(!state.is_finished());
         assert_eq!(None, state.try_winner())
     }
     #[test]
     fn game_stalemate() {
-        let state = super::State::deserialize(GAME_STALEMATE.to_string()).unwrap();
+        let state = super::State::deserialize(GAME_STALEMATE.to_string().into()).unwrap();
         assert!(state.is_stalemate())
     }
     #[test]
     fn winning_turn() {
-        let mut state = super::State::deserialize(GAME_BLUE_WINNING.to_string()).unwrap();
+        let mut state = super::State::deserialize(GAME_BLUE_WINNING.to_string().into()).unwrap();
         assert!(!state.is_finished());
         state.push((Blue, 0, Right)).unwrap();
         assert!(state.is_finished());
@@ -415,12 +416,12 @@ mod tests {
     #[test]
     #[should_panic]
     fn not_a_square() {
-        let mut state = super::State::deserialize(GAME_NOT_SQUARE.to_string()).unwrap();
+        let mut state = super::State::deserialize(GAME_NOT_SQUARE.to_string().into()).unwrap();
         state.push((Blue, 0, Right));
     }
     #[test]
     fn many_turns() {
-        let mut state = super::State::deserialize(GAME_EMPTY.to_string()).unwrap();
+        let mut state = super::State::deserialize(GAME_EMPTY.to_string().into()).unwrap();
         state.push((Red, 0, Right));
         state.push((Blue, 1, Right));
         state.push((Red, 0, Right));
