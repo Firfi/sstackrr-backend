@@ -1,4 +1,4 @@
-use crate::db::{fetch_game_state, GameStateSerialized, GameToken, init_game_state, PlayerToken};
+use crate::db::{claim_game_player, fetch_game_state, GameStateSerialized, GameToken, init_game_state, PlayerToken};
 use crate::game::{GameOperations, Player, Side, State};
 use crate::game::GameSerializations;
 use async_graphql::{EmptyMutation, EmptySubscription, FieldResult, Object, SimpleObject, InputObject, Schema};
@@ -10,6 +10,12 @@ pub struct GameStateResult {
     player: Option<Player>,
     winner: Option<Player>,
     is_stalemate: bool,
+}
+
+#[derive(SimpleObject)]
+pub struct ClaimPlayerResult {
+    game: GameStateResult,
+    player_token: String,
 }
 
 impl GameStateResult {
@@ -53,9 +59,14 @@ impl MutationRoot {
         let game = State::deserialize(GameStateSerialized(serialized))?;
         Ok(GameStateResult::from_game(GameToken(db_game.id.to_string()), game))
     }
-    async fn claim_player(&self, game_token: String, player: Player) -> Result<String, String> {
-
-        Ok("todo".to_string())
+    async fn claim_player(&self, game_token: String, player: Player) -> Result<ClaimPlayerResult, String> {
+        let (id, db_game) = claim_game_player(&GameToken(game_token), player).await?;
+        let serialized = db_game.state;
+        let game = State::deserialize(GameStateSerialized(serialized))?;
+        Ok((ClaimPlayerResult {
+            player_token: id.to_string(),
+            game: GameStateResult::from_game(GameToken(db_game.id.to_string()), game)
+        }))
     }
     async fn turn(&self, player_token: String, turn: Turn) -> Result<GameStateResult, String> {
         let db_game = fetch_game_state(&PlayerToken(player_token)).await?;

@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 use dotenv::dotenv;
 use std::env;
-use crate::db_schema::{EMPTY_STATE, Game};
+use crate::db_schema::{EMPTY_STATE, DbGame, DbGamePlayerRedUpdate, DbGamePlayerBlueUpdate};
 use lazy_static::lazy_static;
 use diesel::{
     r2d2::{Pool, ConnectionManager},
@@ -9,6 +9,7 @@ use diesel::{
 };
 use async_graphql::InputObject;
 use uuid::Uuid;
+use crate::game::Player;
 
 type PgPool = Pool<ConnectionManager<PgConnection>>;
 
@@ -33,24 +34,63 @@ pub struct GameStateSerialized(pub String);
 pub struct PlayerToken(pub String);
 pub struct GameToken(pub String);
 
-pub(crate) async fn init_game_state() -> Result<Game, String> {
+pub(crate) async fn init_game_state() -> Result<DbGame, String> {
     use crate::db_schema::games::dsl::*;
-    let new_game = Game::new();
+    let new_game = DbGame::new();
     let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
     let r = diesel::insert_into(games)
         .values(&new_game)
-        .get_result::<Game>(conn).map_err(|e| e.to_string())?;
+        .get_result::<DbGame>(conn).map_err(|e| e.to_string())?;
     Ok(r)
 }
 
-pub(crate) async fn fetch_game_state(player_token: &PlayerToken) -> Result<Game, String> {
+pub(crate) async fn fetch_game_state(player_token: &PlayerToken) -> Result<DbGame, String> {
     use crate::db_schema::games::dsl::*;
     let token = Uuid::parse_str(&player_token.0).map_err(|e| e.to_string())?;
-    let results = games.filter(player_red.eq(token).or(player_blue.eq(token))).load::<Game>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
+    let results = games.filter(player_red.eq(token).or(player_blue.eq(token))).load::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     Ok(results[0].clone())
 }
 
-pub(crate) async fn update_game_state(player_token: &PlayerToken, state: GameStateSerialized) -> Result<(), String> {
-    // GAME.state = state;
-    Ok(())
+pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSerialized) -> Result<DbGame, String> {
+    use crate::db_schema::games::dsl::*;
+    let mut game = fetch_game_state(player_token).await?;
+    let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
+    game.state = s.0.clone();
+    let r = diesel::update(games)
+        // .set(&game)
+        .set(game)
+        .get_result::<DbGame>(conn).map_err(|e| e.to_string())?;
+    Ok(r)
+}
+
+pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) -> Result<(Uuid, DbGame), String> {
+    use crate::db_schema::games::dsl::*;
+    let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
+    let mut game = games.filter(id.eq(Uuid::parse_str(&game_token.0).unwrap())).load::<DbGame>(conn).map_err(|e| e.to_string())?[0].clone();
+    let new_id = Uuid::new_v4();
+    let statement = match player {
+        Player::Red => {
+            if !game.player_red.is_none() {
+                return Err("Player red already been claimed".to_string());
+            }
+            diesel::update(&game)
+                .set(&DbGamePlayerRedUpdate {
+                    id: game.id,
+                    player_red: new_id,
+                }).get_result::<DbGame>(conn)
+        },
+        Player::Blue => {
+            if !game.player_blue.is_none() {
+                return Err("Player blue already been claimed".to_string());
+            }
+            diesel::update(&game)
+                .set(&DbGamePlayerBlueUpdate {
+                    id: game.id,
+                    player_blue: new_id,
+                }).get_result::<DbGame>(conn)
+
+        },
+    };
+    let r = statement.map_err(|e| e.to_string())?;
+    Ok((new_id, r))
 }
