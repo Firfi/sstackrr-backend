@@ -53,8 +53,8 @@ struct State {
 
 type Coords = (u8, u8);
 
-fn calc_field_index(size_y: u8, x: u8, y: u8) -> u8 {
-    y * size_y/*or size_x?*/ + x
+fn calc_field_index(size_x: u8, x: u8, y: u8) -> u8 {
+    y * size_x/*or size_y?*/ + x
 }
 
 // anything to do directly with the "coords" on the field
@@ -67,7 +67,7 @@ trait MatrixOperations {
 impl MatrixOperations for State {
     // matrix coordinate -> array index
     fn calc_field_index(&self, x: u8, y: u8) -> u8 {
-        calc_field_index(self.size_y, x, y)
+        calc_field_index(self.size_x, x, y)
     }
     // get cell at x, y
     fn get_cell(&self, x: u8, y: u8) -> Result<Cell, String> {
@@ -132,6 +132,7 @@ impl GameOperations for State {
         let mut current_y_player: Cell = None;
         let mut current_x_count: u8 = 0;
         let mut current_y_count: u8 = 0;
+        // TODO this doesn't work for non-square fields
         for i in 0..self.size_x {
             for j in 0..self.size_y {
                 let x_line = self.get_cell( i, j).unwrap();
@@ -286,6 +287,7 @@ mod tests {
     use crate::game::GameOperations;
     use crate::game::GameSerializations;
     use crate::game::Player::*;
+    use crate::game::Side::Right;
 
     // players are taking turns exclusively in the middle of the board, red going only left, blue going only right
     const GAME_NAIVE_HORIZONTAL_WON: &str = r#"
@@ -328,6 +330,31 @@ mod tests {
 1 2
 3 4
     "#;
+    const GAME_BLUE_WINNING: &str = r#"
+1 0 0 0 0 0 0
+5 0 0 0 0 0 2
+3 0 0 0 0 0 4
+0 0 0 0 0 0 6
+0 0 0 0 0 0 7
+0 0 0 0 0 0 0
+0 0 0 0 0 0 0
+    "#;
+    const GAME_NOT_SQUARE: &str = r#"
+1 0 0 0 0 0
+5 0 0 0 0 2
+3 0 0 0 0 4
+0 0 0 0 0 6
+0 0 0 0 0 7
+0 0 0 0 0 0
+0 0 0 0 0 0
+    "#;
+    const GAME_EMPTY: &str = r#"
+0 0 0 0 0
+0 0 0 0 0
+0 0 0 0 0
+0 0 0 0 0
+0 0 0 0 0
+    "#;
     #[test]
     fn serializations() {
         let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string()).unwrap();
@@ -355,11 +382,39 @@ mod tests {
     fn game_ongoing() {
         let state = super::State::deserialize(GAME_ONGOING.to_string()).unwrap();
         assert!(!state.is_stalemate());
+        assert!(!state.is_finished());
         assert_eq!(None, state.try_winner())
     }
     #[test]
     fn game_stalemate() {
         let state = super::State::deserialize(GAME_STALEMATE.to_string()).unwrap();
         assert!(state.is_stalemate())
+    }
+    #[test]
+    fn winning_turn() {
+        let mut state = super::State::deserialize(GAME_BLUE_WINNING.to_string()).unwrap();
+        assert!(!state.is_finished());
+        state.push((Blue, 0, Right)).unwrap();
+        assert!(state.is_finished());
+        assert_eq!(Some(Blue), state.try_winner())
+    }
+    #[test]
+    #[should_panic]
+    fn not_a_square() {
+        let mut state = super::State::deserialize(GAME_NOT_SQUARE.to_string()).unwrap();
+        state.push((Blue, 0, Right));
+    }
+    #[test]
+    fn many_turns() {
+        let mut state = super::State::deserialize(GAME_EMPTY.to_string()).unwrap();
+        state.push((Red, 0, Right));
+        state.push((Blue, 1, Right));
+        state.push((Red, 0, Right));
+        state.push((Blue, 1, Right));
+        state.push((Red, 0, Right));
+        state.push((Blue, 1, Right));
+        assert!(!state.is_finished());
+        state.push((Red, 0, Right));
+        assert!(state.is_finished());
     }
 }
