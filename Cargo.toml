@@ -1,0 +1,28 @@
+[package]
+name = "sstackrr-backend"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# TODO it's a copy-paste from my similar project, clean it up
+[dependencies]
+axum = { version = "0.4.8", features = ["ws", "headers"] }
+hyper = { version = "0.14.18", features = ["full"] }
+tokio = { version = "1.17.0", features = ["full"] }
+tokio-stream = "0.1.8"
+tower = "0.4.12"
+tower-http = { version = "0.2.5", features = ["cors"] }
+async-graphql = "3.0.36"
+async-graphql-axum = "3.0.36"
+num-bigint = "0.4"
+rand = "0.8.5"
+once_cell = "1.10.0"
+num-traits = "0.2.14"
+strum_macros = "0.24.0"
+futures-core = "0.3.21"
+futures-util = "0.3.0"
+futures-channel = "0.3.0"
+futures-timer = "3.0.2"
+chrono = "0.4.19"
+uuid = { version = "0.8", features = ["v4"] }
