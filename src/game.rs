@@ -181,7 +181,7 @@ impl GameOperations for State {
 }
 
 pub trait GameSerializations<T: MatrixOperations = Self> {
-    fn serialize(&self) -> String;
+    fn serialize(&self) -> GameStateSerialized;
     fn deserialize(s: GameStateSerialized) -> Result<T, String>;
     fn to_rows(&self) -> Vec<Vec<Option<Player>>>; // for network, keep here or...?
 }
@@ -234,14 +234,14 @@ fn deserialize_intermediate_history(s: &String) -> Result<Vec<(Coords, Player)>,
 }
 
 impl GameSerializations for State {
-    fn serialize(&self) -> String {
+    fn serialize(&self) -> GameStateSerialized {
         let mut field: Vec<u8> = vec![0; self.size_x as usize * self.size_y as usize];
         for (hi, coords) in self.coords_history.iter().enumerate() {
             let i = self.calc_field_index(coords.0, coords.1);
             field[i as usize] = hi as u8 + 1; // serialized turns are 1-indexed
         }
-        return field.chunks(self.size_x as usize).map(|x| x.iter().map(|n|n.to_string()).collect::<Vec<String>>().join(SERIALIZATION_COL_SEPARATOR))
-            .collect::<Vec<String>>().join(SERIALIZATION_ROW_SEPARATOR);
+        return GameStateSerialized(field.chunks(self.size_x as usize).map(|x| x.iter().map(|n|n.to_string()).collect::<Vec<String>>().join(SERIALIZATION_COL_SEPARATOR))
+            .collect::<Vec<String>>().join(SERIALIZATION_ROW_SEPARATOR));
     }
 
     fn deserialize(s: GameStateSerialized) -> Result<State, String> {

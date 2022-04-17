@@ -1,4 +1,4 @@
-use crate::db::{DbGameAndPlayer, claim_game_player, fetch_game_state, GameStateSerialized, GameToken, init_game_state, PlayerToken};
+use crate::db::{DbGameAndPlayer, claim_game_player, fetch_game_state, GameStateSerialized, GameToken, init_game_state, PlayerToken, update_game_state};
 use crate::game::{GameOperations, Player, Side, State};
 use crate::game::GameSerializations;
 use async_graphql::{EmptyMutation, EmptySubscription, FieldResult, Object, SimpleObject, InputObject, Schema};
@@ -76,11 +76,13 @@ impl MutationRoot {
         }))
     }
     async fn turn(&self, player_token: String, turn: TurnInput) -> Result<GameStateResult, String> {
-        let db_game_and_player = fetch_game_state(&PlayerToken(player_token)).await?;
+        let player_token_parsed = PlayerToken(player_token);
+        let db_game_and_player = fetch_game_state(&player_token_parsed).await?;
         let db_game = db_game_and_player.game;
         let player = db_game_and_player.player;
         let mut state = game_from_db_game(&db_game)?;
         state.push((player, turn.height, turn.side))?;
+        update_game_state(&player_token_parsed, state.serialize()).await?;
         Ok(GameStateResult::from_game(GameToken(db_game.id.to_string()), state))
     }
 }

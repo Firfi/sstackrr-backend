@@ -67,9 +67,9 @@ pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSe
     let mut game = fetch_game_state(player_token).await?.game;
     let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
     game.state = s.0.clone();
-    let r = diesel::update(games)
+    let r = diesel::update(&game)
         // .set(&game)
-        .set(game)
+        .set(&game)
         .get_result::<DbGame>(conn).map_err(|e| e.to_string())?;
     Ok(r)
 }
