@@ -44,16 +44,27 @@ pub(crate) async fn init_game_state() -> Result<DbGame, String> {
     Ok(r)
 }
 
-pub(crate) async fn fetch_game_state(player_token: &PlayerToken) -> Result<DbGame, String> {
+pub struct DbGameAndPlayer {
+    pub game: DbGame,
+    pub player: Player
+}
+
+pub(crate) async fn fetch_game_state(player_token: &PlayerToken) -> Result<DbGameAndPlayer, String> {
     use crate::db_schema::games::dsl::*;
     let token = Uuid::parse_str(&player_token.0).map_err(|e| e.to_string())?;
-    let results = games.filter(player_red.eq(token).or(player_blue.eq(token))).load::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
-    Ok(results[0].clone())
+    let game = &games.filter(player_red.eq(token).or(player_blue.eq(token))).load::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?[0];
+    // warn: non exhaustive
+    let player = if game.player_red == Some(Uuid::parse_str(&player_token.0).unwrap()) {
+        Player::Red
+    } else {
+        Player::Blue
+    };
+    Ok(DbGameAndPlayer { game: game.clone(), player })
 }
 
 pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSerialized) -> Result<DbGame, String> {
     use crate::db_schema::games::dsl::*;
-    let mut game = fetch_game_state(player_token).await?;
+    let mut game = fetch_game_state(player_token).await?.game;
     let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
     game.state = s.0.clone();
     let r = diesel::update(games)

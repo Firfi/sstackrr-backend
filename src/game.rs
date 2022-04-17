@@ -266,7 +266,7 @@ impl GameSerializations for State {
 
 impl State {
 
-    fn push(&mut self, turn: Turn) -> Result<(), String> {
+    pub fn push(&mut self, turn: Turn) -> Result<(), String> {
         if !self.can_continue() {
             return Err("Game is over".into());
         }
@@ -284,7 +284,7 @@ impl State {
         self.field[index] = Some(turn.0);
         Ok(())
     }
-    fn pop(&mut self) -> Result<(), String> {
+    pub fn pop(&mut self) -> Result<(), String> {
         // let turn = self.history.pop().ok_or_else(|| String::from("No turns to pop"))?;
         let coords = self.coords_history.pop().ok_or_else(|| String::from("No turns to pop"))?;
         let index = self.calc_field_index(coords.0, coords.1) as usize;
