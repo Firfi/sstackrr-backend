@@ -1,4 +1,4 @@
-use crate::db::{DbGameAndPlayer, claim_game_player, fetch_game_state_for_player, GameStateSerialized, GameToken, init_game_state, PlayerToken, update_game_state, fetch_game_state};
+use crate::db::{claim_game_player, fetch_game_state_for_player, GameStateSerialized, GameToken, init_game_state, PlayerToken, update_game_state, fetch_game_state};
 use crate::game::{GameOperations, Player, Side, State};
 use crate::game::GameSerializations;
 use async_graphql::{FieldResult, Object, SimpleObject, InputObject, Schema, Subscription};
@@ -14,6 +14,8 @@ pub struct GameStateResult {
     next_player: Option<Player>,
     winner: Option<Player>,
     is_stalemate: bool,
+    red_claimed: bool,
+    blue_claimed: bool,
 }
 
 #[derive(SimpleObject)]
@@ -23,13 +25,16 @@ pub struct ClaimPlayerResult {
 }
 
 impl GameStateResult {
-    pub fn from_game(id: GameToken, game: State) -> GameStateResult {
+    pub fn from_db_game(db_game: &DbGame) -> GameStateResult {
+        let game = game_from_db_game(db_game).unwrap();
         GameStateResult {
-            id: id.0.to_string(),
+            id: db_game.id.to_string(),
             state: game.to_rows(),
             next_player: if game.is_finished() || game.is_stalemate() { None } else { Some(game.next_player().unwrap()) },
             winner: game.try_winner(),
-            is_stalemate: game.is_stalemate()
+            is_stalemate: game.is_stalemate(),
+            red_claimed: db_game.player_red.is_some(),
+            blue_claimed: db_game.player_blue.is_some(),
         }
     }
 }
@@ -41,14 +46,10 @@ fn game_from_db_game(db_game: &DbGame) -> Result<State, String> {
     State::deserialize(GameStateSerialized(serialized))
 }
 
-fn game_state_result_from_db_game(db_game: &DbGame) -> Result<GameStateResult, String> {
-    Ok(GameStateResult::from_game(GameToken(db_game.id.to_string()), game_from_db_game(db_game)?))
-}
-
 #[Object]
 impl QueryRoot {
     pub(crate) async fn game(&self, game_token: String) -> FieldResult<GameStateResult> {
-        Ok(game_state_result_from_db_game(&fetch_game_state(&GameToken(game_token)).await?)?)
+        Ok(GameStateResult::from_db_game(&fetch_game_state(&GameToken(game_token)).await?))
     }
     pub(crate) async fn me(&self, player_token: String) -> FieldResult<Player> {
         Ok(fetch_game_state_for_player(&PlayerToken(player_token)).await?.player)
@@ -68,15 +69,15 @@ pub(crate) struct MutationRoot;
 #[Object]
 impl MutationRoot {
     async fn init_game(&self) -> FieldResult<GameStateResult> {
-        Ok(game_state_result_from_db_game(&init_game_state().await?)?)
+        Ok(GameStateResult::from_db_game(&init_game_state().await?))
     }
     async fn claim_player(&self, game_token: String, player: Player) -> Result<ClaimPlayerResult, String> {
         let (id, db_game) = claim_game_player(&GameToken(game_token), player).await?;
-        let game = game_state_result_from_db_game(&db_game)?;
-        Ok((ClaimPlayerResult {
+        let game = GameStateResult::from_db_game(&db_game);
+        Ok(ClaimPlayerResult {
             player_token: id.to_string(),
             game,
-        }))
+        })
     }
     async fn turn(&self, player_token: String, turn: TurnInput) -> Result<GameStateResult, String> {
         let player_token_parsed = PlayerToken(player_token);
@@ -85,8 +86,8 @@ impl MutationRoot {
         let player = db_game_and_player.player;
         let mut state = game_from_db_game(&db_game)?;
         state.push((player, turn.height, turn.side))?;
-        update_game_state(&player_token_parsed, state.serialize()).await?;
-        Ok(GameStateResult::from_game(GameToken(db_game.id.to_string()), state))
+        let new_db_game = update_game_state(&player_token_parsed, state.serialize()).await?;
+        Ok(GameStateResult::from_db_game(&new_db_game))
     }
 }
 
@@ -99,7 +100,7 @@ impl SubscriptionRoot {
         SimpleBroker::<DbGame>::subscribe().filter(move |db_game: &DbGame| {
             db_game.id.to_string() == game_token
         }).map(|db_game: DbGame| {
-            game_state_result_from_db_game(&db_game).unwrap()
+            GameStateResult::from_db_game(&db_game)
         })
     }
 }

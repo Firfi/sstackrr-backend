@@ -1,13 +1,11 @@
 use diesel::prelude::*;
-use dotenv::dotenv;
 use std::env;
-use crate::db_schema::{EMPTY_STATE, DbGame, DbGamePlayerRedUpdate, DbGamePlayerBlueUpdate};
+use crate::db_schema::{DbGame, DbGamePlayerRedUpdate, DbGamePlayerBlueUpdate};
 use lazy_static::lazy_static;
 use diesel::{
     r2d2::{Pool, ConnectionManager},
     pg::PgConnection
 };
-use async_graphql::InputObject;
 use uuid::Uuid;
 use crate::broker::SimpleBroker;
 use crate::game::Player;
@@ -94,7 +92,7 @@ pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSe
 pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) -> Result<(Uuid, DbGame), String> {
     use crate::db_schema::games::dsl::*;
     let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
-    let mut game = games.filter(id.eq(Uuid::parse_str(&game_token.0).unwrap())).load::<DbGame>(conn).map_err(|e| e.to_string())?[0].clone();
+    let game = games.filter(id.eq(Uuid::parse_str(&game_token.0).unwrap())).load::<DbGame>(conn).map_err(|e| e.to_string())?[0].clone();
     let new_id = Uuid::new_v4();
     let statement = match player {
         Player::Red => {

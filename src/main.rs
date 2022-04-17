@@ -11,23 +11,20 @@ mod db;
 mod db_schema;
 mod broker;
 
-use tokio::time::Duration;
 use std::env;
 
 use async_graphql::{
     http::{playground_source, GraphQLPlaygroundConfig},
-    EmptyMutation, EmptySubscription, Request, Response, Schema,
+    Schema,
 };
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use axum::{
     extract::Extension,
     response::{Html, IntoResponse},
     routing::get,
-    Json, Router,
-    http::Method,
+    Router,
 };
-use std::net::SocketAddr;
-use tower_http::cors::{Any, CorsLayer, Origin};
+use tower_http::cors::{Any, CorsLayer};
 use crate::graphql::{GraphQlSchema, MutationRoot, QueryRoot, SubscriptionRoot};
 
 //async fn graphql_handler(schema: Extension<OrderBookSchema>, req: GraphQLRequest) -> GraphQLResponse {

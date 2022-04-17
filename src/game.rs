@@ -1,9 +1,6 @@
 // the main game file; for better testing and portability, it's immutable
 
-use core::fmt;
-use std::fmt::Formatter;
 use std::str::SplitWhitespace;
-use num_traits::ToPrimitive;
 use strum_macros;
 use async_graphql::Enum;
 use crate::db::GameStateSerialized;
@@ -87,7 +84,7 @@ impl MatrixOperations for State {
         if y >= self.size_y {
             return Err(format!("out of bounds {}", y));
         }
-        let (size_x, size_y, field) = (self.size_x, self.size_y, &self.field);
+        let size_x = self.size_x;
         for i in 0..size_x {
             let x = match direction {
                 Side::Left => i,

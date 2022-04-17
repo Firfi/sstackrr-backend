@@ -1,5 +1,4 @@
 use uuid::Uuid;
-use crate::db::{GameToken, PlayerToken};
 
 table! {
     games {
