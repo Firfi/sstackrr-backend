@@ -9,3 +9,5 @@ Before use, run migrations: `diesel migration run`
 To run, do `cargo run`
 
 GraphQL playground, at the moment of writing this: http://sstackrr-backend.apps.loskutoff.com
+
+Frontend: http://sstackrr-frontend.apps.loskutoff.com
