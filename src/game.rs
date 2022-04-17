@@ -43,7 +43,7 @@ pub type CoordsHistory = Vec<Coords>;
 type Cell = Option<Player>;
 type Field = Vec<Cell>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct State {
     size_x: u8,
     size_y: u8,
@@ -416,19 +416,19 @@ mod tests {
     #[should_panic]
     fn not_a_square() {
         let mut state = super::State::deserialize(GAME_NOT_SQUARE.to_string().into()).unwrap();
-        state.push((Blue, 0, Right));
+        state.push((Blue, 0, Right)).unwrap();
     }
     #[test]
     fn many_turns() {
         let mut state = super::State::deserialize(GAME_EMPTY.to_string().into()).unwrap();
-        state.push((Red, 0, Right));
-        state.push((Blue, 1, Right));
-        state.push((Red, 0, Right));
-        state.push((Blue, 1, Right));
-        state.push((Red, 0, Right));
-        state.push((Blue, 1, Right));
+        state.push((Red, 0, Right)).unwrap();
+        state.push((Blue, 1, Right)).unwrap();
+        state.push((Red, 0, Right)).unwrap();
+        state.push((Blue, 1, Right)).unwrap();
+        state.push((Red, 0, Right)).unwrap();
+        state.push((Blue, 1, Right)).unwrap();
         assert!(!state.is_finished());
-        state.push((Red, 0, Right));
+        state.push((Red, 0, Right)).unwrap();
         assert!(state.is_finished());
     }
 }

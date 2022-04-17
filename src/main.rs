@@ -9,6 +9,7 @@ mod game;
 mod graphql;
 mod db;
 mod db_schema;
+mod broker;
 
 use tokio::time::Duration;
 use std::env;
@@ -27,7 +28,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer, Origin};
-use crate::graphql::{GraphQlSchema, MutationRoot, QueryRoot};
+use crate::graphql::{GraphQlSchema, MutationRoot, QueryRoot, SubscriptionRoot};
 
 //async fn graphql_handler(schema: Extension<OrderBookSchema>, req: GraphQLRequest) -> GraphQLResponse {
 async fn graphql_handler(schema: Extension<GraphQlSchema>, req: GraphQLRequest) -> GraphQLResponse {
@@ -43,7 +44,7 @@ async fn main() {
     dotenv().ok();
     let port = env::var("PORT").unwrap_or("3000".to_string());
 
-    let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)
+    let schema = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot)
         .finish();
 
     let app = Router::new()

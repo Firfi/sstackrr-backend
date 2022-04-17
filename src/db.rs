@@ -9,6 +9,7 @@ use diesel::{
 };
 use async_graphql::InputObject;
 use uuid::Uuid;
+use crate::broker::SimpleBroker;
 use crate::game::Player;
 
 type PgPool = Pool<ConnectionManager<PgConnection>>;
@@ -37,7 +38,9 @@ impl From<std::string::String> for GameStateSerialized {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct PlayerToken(pub String);
+#[derive(Clone, Debug)]
 pub struct GameToken(pub String);
 
 pub(crate) async fn init_game_state() -> Result<DbGame, String> {
@@ -55,7 +58,14 @@ pub struct DbGameAndPlayer {
     pub player: Player
 }
 
-pub(crate) async fn fetch_game_state(player_token: &PlayerToken) -> Result<DbGameAndPlayer, String> {
+pub(crate) async fn fetch_game_state(game_token: &GameToken) -> Result<DbGame, String> {
+    use crate::db_schema::games::dsl::*;
+    let token = Uuid::parse_str(&game_token.0).map_err(|e| e.to_string())?;
+    let game = &games.filter(id.eq(token)).load::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?[0];
+    Ok(game.clone())
+}
+
+pub(crate) async fn fetch_game_state_for_player(player_token: &PlayerToken) -> Result<DbGameAndPlayer, String> {
     use crate::db_schema::games::dsl::*;
     let token = Uuid::parse_str(&player_token.0).map_err(|e| e.to_string())?;
     let game = &games.filter(player_red.eq(token).or(player_blue.eq(token))).load::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?[0];
@@ -70,13 +80,14 @@ pub(crate) async fn fetch_game_state(player_token: &PlayerToken) -> Result<DbGam
 
 pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSerialized) -> Result<DbGame, String> {
     use crate::db_schema::games::dsl::*;
-    let mut game = fetch_game_state(player_token).await?.game;
+    let mut game = fetch_game_state_for_player(player_token).await?.game;
     let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
     game.state = s.0.clone();
     let r = diesel::update(&game)
         // .set(&game)
         .set(&game)
         .get_result::<DbGame>(conn).map_err(|e| e.to_string())?;
+    SimpleBroker::publish(r.clone());
     Ok(r)
 }
 
@@ -109,5 +120,6 @@ pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) ->
         },
     };
     let r = statement.map_err(|e| e.to_string())?;
+    SimpleBroker::publish(r.clone());
     Ok((new_id, r))
 }

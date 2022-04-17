@@ -1,7 +1,10 @@
-use crate::db::{DbGameAndPlayer, claim_game_player, fetch_game_state, GameStateSerialized, GameToken, init_game_state, PlayerToken, update_game_state};
+use crate::db::{DbGameAndPlayer, claim_game_player, fetch_game_state_for_player, GameStateSerialized, GameToken, init_game_state, PlayerToken, update_game_state, fetch_game_state};
 use crate::game::{GameOperations, Player, Side, State};
 use crate::game::GameSerializations;
-use async_graphql::{EmptyMutation, EmptySubscription, FieldResult, Object, SimpleObject, InputObject, Schema};
+use async_graphql::{FieldResult, Object, SimpleObject, InputObject, Schema, Subscription};
+use async_graphql::futures_util::Stream;
+use tokio_stream::StreamExt;
+use crate::broker::SimpleBroker;
 use crate::db_schema::DbGame;
 
 #[derive(SimpleObject)]
@@ -44,15 +47,15 @@ fn game_state_result_from_db_game(db_game: &DbGame) -> Result<GameStateResult, S
 
 #[Object]
 impl QueryRoot {
-    pub(crate) async fn game(&self, player_token: String) -> FieldResult<GameStateResult> {
-        Ok(game_state_result_from_db_game(&fetch_game_state(&PlayerToken(player_token)).await?.game)?)
+    pub(crate) async fn game(&self, game_token: String) -> FieldResult<GameStateResult> {
+        Ok(game_state_result_from_db_game(&fetch_game_state(&GameToken(game_token)).await?)?)
     }
     pub(crate) async fn me(&self, player_token: String) -> FieldResult<Player> {
-        Ok(fetch_game_state(&PlayerToken(player_token)).await?.player)
+        Ok(fetch_game_state_for_player(&PlayerToken(player_token)).await?.player)
     }
 }
 
-pub(crate) type GraphQlSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
+pub(crate) type GraphQlSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 
 #[derive(InputObject)]
 struct TurnInput {
@@ -77,12 +80,26 @@ impl MutationRoot {
     }
     async fn turn(&self, player_token: String, turn: TurnInput) -> Result<GameStateResult, String> {
         let player_token_parsed = PlayerToken(player_token);
-        let db_game_and_player = fetch_game_state(&player_token_parsed).await?;
+        let db_game_and_player = fetch_game_state_for_player(&player_token_parsed).await?;
         let db_game = db_game_and_player.game;
         let player = db_game_and_player.player;
         let mut state = game_from_db_game(&db_game)?;
         state.push((player, turn.height, turn.side))?;
         update_game_state(&player_token_parsed, state.serialize()).await?;
         Ok(GameStateResult::from_game(GameToken(db_game.id.to_string()), state))
+    }
+}
+
+pub(crate) struct SubscriptionRoot;
+
+#[Subscription]
+impl SubscriptionRoot {
+    // a "readonly" game for anyone to subscribe to. I push the whole game state, because I'm lazy and also it isn't big size anyways
+    async fn game(&self, game_token: String) -> impl Stream<Item = GameStateResult> {
+        SimpleBroker::<DbGame>::subscribe().filter(move |db_game: &DbGame| {
+            db_game.id.to_string() == game_token
+        }).map(|db_game: DbGame| {
+            game_state_result_from_db_game(&db_game).unwrap()
+        })
     }
 }
