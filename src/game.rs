@@ -10,7 +10,6 @@ use crate::db::GameStateSerialized;
 
 // code assumes our field is at least 1x1
 const MIN_DIM: u8 = 1;
-const DEFAULT_SIDE: u8 = 7;
 const WIN_LEN: u8 = 4;
 
 const SERIALIZATION_COL_SEPARATOR: &str = " "; // "separate" cols from each other, but "split" rows
@@ -40,7 +39,6 @@ pub enum Side {
 type Height = u8; // the vertical axis, sides are to the left/right of it
 
 pub type Turn = (Player, Height, Side);
-pub type History = Vec<Turn>;
 pub type CoordsHistory = Vec<Coords>;
 type Cell = Option<Player>;
 type Field = Vec<Cell>;
@@ -78,7 +76,7 @@ impl MatrixOperations for State {
     // get cell at x, y
     fn get_cell(&self, x: u8, y: u8) -> Result<Cell, String> {
         let (size_x, size_y, field) = (self.size_x, self.size_y, &self.field);
-        if x >= size_x || y >= size_y || x < 0 || y < 0 {
+        if x >= size_x || y >= size_y {
             return Err(format!("out of bounds {} {}", x, y));
         }
         let cell = self.field[self.calc_field_index(x, y) as usize].clone();
@@ -86,7 +84,7 @@ impl MatrixOperations for State {
     }
     // where a new piece would land; empty space or nothing
     fn next_cell_towards(&self, direction: Side, y: u8) -> Result<Option<Coords>, String> {
-        if y >= self.size_y || y < 0 {
+        if y >= self.size_y {
             return Err(format!("out of bounds {}", y));
         }
         let (size_x, size_y, field) = (self.size_x, self.size_y, &self.field);
@@ -141,8 +139,9 @@ impl GameOperations for State {
         // TODO this doesn't work for non-square fields
         for i in 0..self.size_x {
             for j in 0..self.size_y {
-                let x_line = self.get_cell( i, j).unwrap();
-                let y_line = self.get_cell( j, i).unwrap();
+                let rectangular_placeholder = None;
+                let x_line = self.get_cell( i, j).unwrap_or(rectangular_placeholder);
+                let y_line = self.get_cell( j, i).unwrap_or(rectangular_placeholder);
                 if current_x_player.is_some() && x_line == current_x_player {
                     current_x_count += 1;
                 } else {
@@ -373,7 +372,7 @@ mod tests {
     #[test]
     fn serializations() {
         let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string().into()).unwrap();
-        assert_eq!(GAME_NAIVE_HORIZONTAL_WON.to_string().trim(), state.serialize())
+        assert_eq!(GAME_NAIVE_HORIZONTAL_WON.to_string().trim(), state.serialize().0)
     }
     #[test]
     fn winner_horizontal() {

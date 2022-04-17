@@ -33,6 +33,7 @@ pub struct DbGamePlayerBlueUpdate {
     pub player_blue: Uuid,
 }
 
+// default side is 7, and it's a square
 pub const EMPTY_STATE: &str = r#"
 0 0 0 0 0 0 0
 0 0 0 0 0 0 0

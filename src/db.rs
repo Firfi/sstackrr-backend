@@ -31,6 +31,12 @@ lazy_static! {
 
 pub struct GameStateSerialized(pub String);
 
+impl From<std::string::String> for GameStateSerialized {
+    fn from(s: std::string::String) -> Self {
+        GameStateSerialized(s)
+    }
+}
+
 pub struct PlayerToken(pub String);
 pub struct GameToken(pub String);
 

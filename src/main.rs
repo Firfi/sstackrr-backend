@@ -41,7 +41,7 @@ async fn graphql_playground() -> impl IntoResponse {
 #[tokio::main]
 async fn main() {
     dotenv().ok();
-    let PORT = env::var("PORT").unwrap_or("3000".to_string());
+    let port = env::var("PORT").unwrap_or("3000".to_string());
 
     let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)
         .finish();
@@ -56,9 +56,9 @@ async fn main() {
                    .allow_headers(Any),
         );
 
-    println!("{}", format!("Playground: http://localhost:{}", &PORT));
+    println!("{}", format!("Playground: http://localhost:{}", &port));
 
-    tokio::join!(axum::Server::bind(&format!("0.0.0.0:{}", &PORT).parse().unwrap())
+    tokio::join!(axum::Server::bind(&format!("0.0.0.0:{}", &port).parse().unwrap())
         .serve(app.into_make_service()));
 
 }
