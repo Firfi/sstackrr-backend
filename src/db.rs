@@ -28,6 +28,12 @@ lazy_static! {
     };
 }
 
+embed_migrations!();
+
+pub fn run_embed_migrations() {
+    embedded_migrations::run(&VALUES.db_connection.get().unwrap());
+}
+
 pub struct GameStateSerialized(pub String);
 
 impl From<std::string::String> for GameStateSerialized {

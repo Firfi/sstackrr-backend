@@ -3,6 +3,8 @@
 //! ```
 #[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate diesel_migrations;
 extern crate dotenv;
 use dotenv::dotenv;
 mod game;
@@ -25,6 +27,7 @@ use axum::{
     Router,
 };
 use tower_http::cors::{Any, CorsLayer};
+use crate::db::run_embed_migrations;
 use crate::graphql::{GraphQlSchema, MutationRoot, QueryRoot, SubscriptionRoot};
 
 //async fn graphql_handler(schema: Extension<OrderBookSchema>, req: GraphQLRequest) -> GraphQLResponse {
@@ -39,6 +42,7 @@ async fn graphql_playground() -> impl IntoResponse {
 #[tokio::main]
 async fn main() {
     dotenv().ok();
+    run_embed_migrations();
     let port = env::var("PORT").unwrap_or("3000".to_string());
 
     let schema = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot)

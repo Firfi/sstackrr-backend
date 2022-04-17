@@ -26,5 +26,6 @@ futures-timer = "3.0.2"
 chrono = "0.4.19"
 uuid = { version = "0.8", features = ["v4"] }
 diesel = { version = "1.4.4", features = ["postgres", "r2d2", "uuidv07"] }
+diesel_migrations = "1.4.0"
 dotenv = "0.15.0"
 lazy_static = "1.4.0"
