@@ -75,7 +75,7 @@ impl MutationRoot {
         let (id, db_game) = claim_game_player(&game_token, player).await?;
         let game = GameStateResult::from_db_game(&db_game);
         Ok(ClaimPlayerResult {
-            player_token: PlayerToken(id.to_string()),
+            player_token: PlayerToken(id),
             game,
         })
     }

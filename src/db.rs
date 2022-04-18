@@ -44,7 +44,7 @@ impl From<std::string::String> for GameStateSerialized {
 }
 
 #[derive(Clone, Debug, NewType)]
-pub struct PlayerToken(pub String);
+pub struct PlayerToken(pub Uuid);
 #[derive(Clone, Debug, NewType)]
 pub struct GameToken(pub String);
 
@@ -72,10 +72,10 @@ pub(crate) async fn fetch_game_state(game_token: &GameToken) -> Result<DbGame, S
 
 pub(crate) async fn fetch_game_state_for_player(player_token: &PlayerToken) -> Result<DbGameAndPlayer, String> {
     use crate::db_schema::games::dsl::*;
-    let token = Uuid::parse_str(&player_token.0).map_err(|e| e.to_string())?;
+    let token = player_token.0;
     let game = &games.filter(player_red.eq(token).or(player_blue.eq(token))).first::<DbGame>(&STATICS.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     // warn: non exhaustive
-    let player = if game.player_red == Some(Uuid::parse_str(&player_token.0).unwrap()) {
+    let player = if game.player_red == Some(player_token.0) {
         Player::Red
     } else {
         Player::Blue
