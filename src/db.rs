@@ -1,5 +1,6 @@
 use diesel::prelude::*;
 use std::env;
+use async_graphql::NewType;
 use crate::db_schema::{DbGame, DbGamePlayerRedUpdate, DbGamePlayerBlueUpdate};
 use lazy_static::lazy_static;
 use diesel::{
@@ -42,9 +43,9 @@ impl From<std::string::String> for GameStateSerialized {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, NewType)]
 pub struct PlayerToken(pub String);
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, NewType)]
 pub struct GameToken(pub String);
 
 pub(crate) async fn init_game_state() -> Result<DbGame, String> {

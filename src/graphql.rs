@@ -9,7 +9,7 @@ use crate::db_schema::DbGame;
 
 #[derive(SimpleObject)]
 pub struct GameStateResult {
-    id: String,
+    id: GameToken,
     state: Vec<Vec<Option<Player>>>,
     next_player: Option<Player>,
     winner: Option<Player>,
@@ -21,14 +21,14 @@ pub struct GameStateResult {
 #[derive(SimpleObject)]
 pub struct ClaimPlayerResult {
     game: GameStateResult,
-    player_token: String,
+    player_token: PlayerToken,
 }
 
 impl GameStateResult {
     pub fn from_db_game(db_game: &DbGame) -> GameStateResult {
         let game = game_from_db_game(db_game).unwrap();
         GameStateResult {
-            id: db_game.id.to_string(),
+            id: GameToken(db_game.id.to_string()),
             state: game.to_rows(),
             next_player: if game.is_finished() || game.is_stalemate() { None } else { Some(game.next_player().unwrap()) },
             winner: game.try_winner(),
@@ -48,11 +48,11 @@ fn game_from_db_game(db_game: &DbGame) -> Result<State, String> {
 
 #[Object]
 impl QueryRoot {
-    pub(crate) async fn game(&self, game_token: String) -> FieldResult<GameStateResult> {
-        Ok(GameStateResult::from_db_game(&fetch_game_state(&GameToken(game_token)).await?))
+    pub(crate) async fn game(&self, game_token: GameToken) -> FieldResult<GameStateResult> {
+        Ok(GameStateResult::from_db_game(&fetch_game_state(&game_token).await?))
     }
-    pub(crate) async fn me(&self, player_token: String) -> FieldResult<Player> {
-        Ok(fetch_game_state_for_player(&PlayerToken(player_token)).await?.player)
+    pub(crate) async fn me(&self, player_token: PlayerToken) -> FieldResult<Player> {
+        Ok(fetch_game_state_for_player(&player_token).await?.player)
     }
 }
 
@@ -71,22 +71,21 @@ impl MutationRoot {
     async fn init_game(&self) -> FieldResult<GameStateResult> {
         Ok(GameStateResult::from_db_game(&init_game_state().await?))
     }
-    async fn claim_player(&self, game_token: String, player: Player) -> Result<ClaimPlayerResult, String> {
-        let (id, db_game) = claim_game_player(&GameToken(game_token), player).await?;
+    async fn claim_player(&self, game_token: GameToken, player: Player) -> Result<ClaimPlayerResult, String> {
+        let (id, db_game) = claim_game_player(&game_token, player).await?;
         let game = GameStateResult::from_db_game(&db_game);
         Ok(ClaimPlayerResult {
-            player_token: id.to_string(),
+            player_token: PlayerToken(id.to_string()),
             game,
         })
     }
-    async fn turn(&self, player_token: String, turn: TurnInput) -> Result<GameStateResult, String> {
-        let player_token_parsed = PlayerToken(player_token);
-        let db_game_and_player = fetch_game_state_for_player(&player_token_parsed).await?;
+    async fn turn(&self, player_token: PlayerToken, turn: TurnInput) -> Result<GameStateResult, String> {
+        let db_game_and_player = fetch_game_state_for_player(&player_token).await?;
         let db_game = db_game_and_player.game;
         let player = db_game_and_player.player;
         let mut state = game_from_db_game(&db_game)?;
         state.push((player, turn.height, turn.side))?;
-        let new_db_game = update_game_state(&player_token_parsed, state.serialize()).await?;
+        let new_db_game = update_game_state(&player_token, state.serialize()).await?;
         Ok(GameStateResult::from_db_game(&new_db_game))
     }
 }
@@ -96,9 +95,9 @@ pub(crate) struct SubscriptionRoot;
 #[Subscription]
 impl SubscriptionRoot {
     // a "readonly" game for anyone to subscribe to. I push the whole game state, because I'm lazy and also it isn't big size anyways
-    async fn game(&self, game_token: String) -> impl Stream<Item = GameStateResult> {
+    async fn game(&self, game_token: GameToken) -> impl Stream<Item = GameStateResult> {
         SimpleBroker::<DbGame>::subscribe().filter(move |db_game: &DbGame| {
-            db_game.id.to_string() == game_token
+            db_game.id.to_string() == game_token.0
         }).map(|db_game: DbGame| {
             GameStateResult::from_db_game(&db_game)
         })
