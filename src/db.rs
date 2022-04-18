@@ -65,16 +65,14 @@ pub struct DbGameAndPlayer {
 pub(crate) async fn fetch_game_state(game_token: &GameToken) -> Result<DbGame, String> {
     use crate::db_schema::games::dsl::*;
     let token = Uuid::parse_str(&game_token.0).map_err(|e| e.to_string())?;
-    // TODO [0] to something more proper
-    let game = &games.filter(id.eq(token)).load::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?[0];
+    let game = &games.filter(id.eq(token)).first::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     Ok(game.clone())
 }
 
 pub(crate) async fn fetch_game_state_for_player(player_token: &PlayerToken) -> Result<DbGameAndPlayer, String> {
     use crate::db_schema::games::dsl::*;
     let token = Uuid::parse_str(&player_token.0).map_err(|e| e.to_string())?;
-    // TODO [0] to something more proper
-    let game = &games.filter(player_red.eq(token).or(player_blue.eq(token))).load::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?[0];
+    let game = &games.filter(player_red.eq(token).or(player_blue.eq(token))).first::<DbGame>(&VALUES.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     // warn: non exhaustive
     let player = if game.player_red == Some(Uuid::parse_str(&player_token.0).unwrap()) {
         Player::Red
@@ -100,8 +98,7 @@ pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSe
 pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) -> Result<(Uuid, DbGame), String> {
     use crate::db_schema::games::dsl::*;
     let conn: &PgConnection = &VALUES.db_connection.get().unwrap();
-    // TODO [0] to something more proper
-    let game = games.filter(id.eq(Uuid::parse_str(&game_token.0).unwrap())).load::<DbGame>(conn).map_err(|e| e.to_string())?[0].clone();
+    let game = games.filter(id.eq(Uuid::parse_str(&game_token.0).unwrap())).first::<DbGame>(conn).map_err(|e| e.to_string())?.clone();
     let new_id = Uuid::new_v4();
     let statement = match player {
         Player::Red => {
