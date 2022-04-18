@@ -179,7 +179,7 @@ impl GameOperations for State {
 
 pub trait GameSerializations<T: MatrixOperations = Self> {
     fn serialize(&self) -> GameStateSerialized;
-    fn deserialize(s: GameStateSerialized) -> Result<T, String>;
+    fn deserialize(s: &GameStateSerialized) -> Result<T, String>;
     fn to_rows(&self) -> Vec<Vec<Option<Player>>>; // for network, keep here or...?
 }
 
@@ -241,7 +241,7 @@ impl GameSerializations for State {
             .collect::<Vec<String>>().join(SERIALIZATION_ROW_SEPARATOR));
     }
 
-    fn deserialize(s: GameStateSerialized) -> Result<State, String> {
+    fn deserialize(s: &GameStateSerialized) -> Result<State, String> {
         let (width, height) = validate_serialized_dimensions(&s.0)?;
         let mut state = State::new(width, height);
         for (coords, player) in deserialize_intermediate_history(&s.0)?.iter() {

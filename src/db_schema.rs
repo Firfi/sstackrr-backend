@@ -1,5 +1,5 @@
 use uuid::Uuid;
-use crate::db::{GameToken, PlayerToken};
+use crate::db::{GameStateSerialized, GameToken, PlayerToken};
 
 table! {
     games {
@@ -14,7 +14,7 @@ table! {
 #[table_name="games"]
 pub struct DbGame {
     pub id: GameToken,
-    pub state: String, // todo GameStateSerialized
+    pub state: GameStateSerialized,
     pub player_red: Option<PlayerToken>,
     pub player_blue: Option<PlayerToken>,
 }

@@ -42,8 +42,7 @@ impl GameStateResult {
 pub(crate) struct QueryRoot;
 
 fn game_from_db_game(db_game: &DbGame) -> Result<State, String> {
-    let serialized = db_game.state.clone();
-    State::deserialize(GameStateSerialized(serialized))
+    State::deserialize(&db_game.state)
 }
 
 #[Object]

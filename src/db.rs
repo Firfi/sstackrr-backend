@@ -35,11 +35,18 @@ pub fn run_embed_migrations() {
     embedded_migrations::run(&STATICS.db_connection.get().unwrap());
 }
 
+#[derive(Clone, Debug, DieselNewType, PartialEq, Eq, Hash)]
 pub struct GameStateSerialized(pub String);
 
 impl From<std::string::String> for GameStateSerialized {
     fn from(s: std::string::String) -> Self {
         GameStateSerialized(s)
+    }
+}
+
+impl From<&str> for GameStateSerialized {
+    fn from(s: &str) -> Self {
+        GameStateSerialized(s.to_string())
     }
 }
 
@@ -86,7 +93,7 @@ pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSe
     use crate::db_schema::games::dsl::*;
     let mut game = fetch_game_state_for_player(player_token).await?.game;
     let conn: &PgConnection = &STATICS.db_connection.get().unwrap();
-    game.state = s.0.clone();
+    game.state = s.clone();
     let r = diesel::update(&game)
         // .set(&game)
         .set(&game)
