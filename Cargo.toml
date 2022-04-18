@@ -27,5 +27,6 @@ chrono = "0.4.19"
 uuid = { version = "0.8", features = ["v4"] }
 diesel = { version = "1.4.4", features = ["postgres", "r2d2", "uuidv07"] }
 diesel_migrations = "1.4.0"
+diesel-derive-newtype = "0.1.2" # at the moment, the source code is ancient, but from PRs it seems that the maintainer hasn't still forgotten about it
 dotenv = "0.15.0"
 lazy_static = "1.4.0"

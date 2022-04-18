@@ -5,6 +5,8 @@
 extern crate diesel;
 #[macro_use]
 extern crate diesel_migrations;
+#[macro_use]
+extern crate diesel_derive_newtype;
 extern crate dotenv;
 use dotenv::dotenv;
 mod game;

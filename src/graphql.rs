@@ -28,7 +28,7 @@ impl GameStateResult {
     pub fn from_db_game(db_game: &DbGame) -> GameStateResult {
         let game = game_from_db_game(db_game).unwrap();
         GameStateResult {
-            id: GameToken(db_game.id.to_string()),
+            id: db_game.id.clone(),
             state: game.to_rows(),
             next_player: if game.is_finished() || game.is_stalemate() { None } else { Some(game.next_player().unwrap()) },
             winner: game.try_winner(),
@@ -97,7 +97,7 @@ impl SubscriptionRoot {
     // a "readonly" game for anyone to subscribe to. I push the whole game state, because I'm lazy and also it isn't big size anyways
     async fn game(&self, game_token: GameToken) -> impl Stream<Item = GameStateResult> {
         SimpleBroker::<DbGame>::subscribe().filter(move |db_game: &DbGame| {
-            db_game.id.to_string() == game_token.0
+            db_game.id == game_token
         }).map(|db_game: DbGame| {
             GameStateResult::from_db_game(&db_game)
         })

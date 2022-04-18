@@ -43,10 +43,10 @@ impl From<std::string::String> for GameStateSerialized {
     }
 }
 
-#[derive(Clone, Debug, NewType)]
+#[derive(Clone, Debug, NewType, DieselNewType, PartialEq, Eq, Hash)]
 pub struct PlayerToken(pub Uuid);
-#[derive(Clone, Debug, NewType)]
-pub struct GameToken(pub String);
+#[derive(Clone, Debug, NewType, DieselNewType, PartialEq, Eq, Hash)]
+pub struct GameToken(pub Uuid);
 
 pub(crate) async fn init_game_state() -> Result<DbGame, String> {
     use crate::db_schema::games::dsl::*;
@@ -65,8 +65,7 @@ pub struct DbGameAndPlayer {
 
 pub(crate) async fn fetch_game_state(game_token: &GameToken) -> Result<DbGame, String> {
     use crate::db_schema::games::dsl::*;
-    let token = Uuid::parse_str(&game_token.0).map_err(|e| e.to_string())?;
-    let game = &games.filter(id.eq(token)).first::<DbGame>(&STATICS.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
+    let game = &games.filter(id.eq(game_token)).first::<DbGame>(&STATICS.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     Ok(game.clone())
 }
 
@@ -75,7 +74,7 @@ pub(crate) async fn fetch_game_state_for_player(player_token: &PlayerToken) -> R
     let token = player_token.0;
     let game = &games.filter(player_red.eq(token).or(player_blue.eq(token))).first::<DbGame>(&STATICS.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     // warn: non exhaustive
-    let player = if game.player_red == Some(player_token.0) {
+    let player = if game.player_red == Some(player_token.clone()) {
         Player::Red
     } else {
         Player::Blue
@@ -99,7 +98,7 @@ pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSe
 pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) -> Result<(Uuid, DbGame), String> {
     use crate::db_schema::games::dsl::*;
     let conn: &PgConnection = &STATICS.db_connection.get().unwrap();
-    let game = games.filter(id.eq(Uuid::parse_str(&game_token.0).unwrap())).first::<DbGame>(conn).map_err(|e| e.to_string())?.clone();
+    let game = games.filter(id.eq(game_token)).first::<DbGame>(conn).map_err(|e| e.to_string())?.clone();
     let new_id = Uuid::new_v4();
     let statement = match player {
         Player::Red => {
@@ -108,8 +107,9 @@ pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) ->
             }
             diesel::update(&game)
                 .set(&DbGamePlayerRedUpdate {
-                    id: game.id,
-                    player_red: new_id,
+                    id: game.id.clone(),
+                    // TODO PlayerToken::new
+                    player_red: PlayerToken(new_id),
                 }).get_result::<DbGame>(conn)
         },
         Player::Blue => {
@@ -118,8 +118,8 @@ pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) ->
             }
             diesel::update(&game)
                 .set(&DbGamePlayerBlueUpdate {
-                    id: game.id,
-                    player_blue: new_id,
+                    id: game.id.clone(),
+                    player_blue: PlayerToken(new_id),
                 }).get_result::<DbGame>(conn)
 
         },
