@@ -128,13 +128,14 @@ impl GameOperations for State {
     // big procedural blob... TODO we can potentially at least decouple x/y logic duplication
     // iterate through the field (both rows and columns together)
     fn try_winner(&self) -> Cell {
-        // at least 2x2
-        let mut current_x_player: Cell = None;
-        let mut current_y_player: Cell = None;
-        let mut current_x_count: u8 = 0;
-        let mut current_y_count: u8 = 0;
+
         // TODO this doesn't work for non-square fields
         for i in 0..self.size_x {
+            // at least 2x2
+            let mut current_x_player: Cell = None;
+            let mut current_y_player: Cell = None;
+            let mut current_x_count: u8 = 0;
+            let mut current_y_count: u8 = 0;
             for j in 0..self.size_y {
                 let rectangular_placeholder = None;
                 let x_line = self.get_cell( i, j).unwrap_or(rectangular_placeholder);
@@ -366,6 +367,17 @@ mod tests {
 0 0 0 0 0
 0 0 0 0 0
     "#;
+    // when a "column" (or a "row") isn't reset properly
+    // it could cause a column square to be counted into row squares or vice versa
+    const GAME_WINNER_ALGORITHM_BUG_1: &str = r#"
+15 13 12 7 3  2  1
+11 10 9  8 6  5  4
+16 18 20 0 19 17 14
+0  0  0  0 0  0  0
+0  0  0  0 0  0  0
+0  0  0  0 0  0  0
+0  0  0  0 0  0  0
+    "#;
     #[test]
     fn serializations() {
         let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string().into()).unwrap();
@@ -414,6 +426,11 @@ mod tests {
     fn not_a_square() {
         let mut state = super::State::deserialize(GAME_NOT_SQUARE.to_string().into()).unwrap();
         state.push((Blue, 0, Right)).unwrap();
+    }
+    #[test]
+    fn bug1() {
+        let mut state = super::State::deserialize(GAME_WINNER_ALGORITHM_BUG_1.to_string().into()).unwrap();
+        assert_eq!(None, state.try_winner())
     }
     #[test]
     fn many_turns() {
