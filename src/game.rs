@@ -108,6 +108,62 @@ pub trait GameOperations<T: MatrixOperations = Self> {
     fn is_stalemate(&self) -> bool;
 }
 
+// todo really, iterators
+fn make_rows_iterator(width: u8, height: u8) -> Vec<Vec<Coords>> {
+    let mut rows = Vec::new();
+    for y in 0..height {
+        let mut row = Vec::new();
+        for x in 0..width {
+            row.push((x, y));
+        }
+        rows.push(row);
+    }
+    rows
+}
+
+fn make_columns_iterator(width: u8, height: u8) -> Vec<Vec<Coords>> {
+    let mut columns = Vec::new();
+    for x in 0..width {
+        let mut column = Vec::new();
+        for y in 0..height {
+            column.push((x, y));
+        }
+        columns.push(column);
+    }
+    columns
+}
+
+fn make_diagonal_l_iterator(width: u8, height: u8) -> Vec<Vec<Coords>> {
+    let mut diagonals = Vec::new();
+    for k in 0..(width + height - 1) {
+        let mut diagonal = Vec::new();
+        for j in 0..(k + 1) {
+            let i: u8 = k - j;
+            if i < height && j < width {
+                diagonal.push((i, j));
+            }
+        }
+        diagonals.push(diagonal);
+    }
+    diagonals
+}
+
+fn make_diagonal_r_iterator(width: u8, height: u8) -> Vec<Vec<Coords>> {
+    let mut diagonals = Vec::new();
+    for k in 0..(width + height - 1) {
+        let mut diagonal = Vec::new();
+        for j in 0..(k + 1) {
+            let i: u8 = k - j;
+            if i < height && j < width {
+                diagonal.push((i, height - j - 1));
+            }
+        }
+        diagonals.push(diagonal);
+    }
+    diagonals
+}
+
+
 impl GameOperations for State {
     fn next_player(&self) -> Result<Player, String> {
         if !self.can_continue() {
@@ -125,49 +181,38 @@ impl GameOperations for State {
     fn can_continue(&self) -> bool {
         !self.is_finished() && !self.is_stalemate()
     }
-    // big procedural blob... TODO we can potentially at least decouple x/y logic duplication
-    // iterate through the field (both rows and columns together)
     fn try_winner(&self) -> Cell {
-
-        // TODO this doesn't work for non-square fields
-        for i in 0..self.size_x {
-            // at least 2x2
-            let mut current_x_player: Cell = None;
-            let mut current_y_player: Cell = None;
-            let mut current_x_count: u8 = 0;
-            let mut current_y_count: u8 = 0;
-            for j in 0..self.size_y {
-                let rectangular_placeholder = None;
-                let x_line = self.get_cell( i, j).unwrap_or(rectangular_placeholder);
-                let y_line = self.get_cell( j, i).unwrap_or(rectangular_placeholder);
-                if current_x_player.is_some() && x_line == current_x_player {
-                    current_x_count += 1;
-                } else {
-                    current_x_player = x_line;
-                    current_x_count = 1; // note that Optional goes into the count too but it's all right
-                }
-                if current_x_player.is_some() && current_x_count >= WIN_LEN {
-                    return current_x_player;
-                }
-                if current_y_player.is_some() && y_line == current_y_player {
-                    current_y_count += 1;
-                } else {
-                    current_y_player = y_line;
-                    current_y_count = 1;
-                }
-                let x_won = current_x_player.is_some() && current_x_count >= WIN_LEN;
-                let y_won = current_y_player.is_some() && current_y_count >= WIN_LEN;
-                if x_won && y_won {
-                    // something wrong with our data or computation; safety net:
-                    panic!("x and y both won?");
-                } else if x_won {
-                    return current_x_player;
-                } else if y_won {
-                    return current_y_player;
+        fn try_winner_for_iteration(iter: &Vec<Vec<Coords>>, mo: &dyn MatrixOperations) -> Cell {
+            for coords in iter {
+                let mut current_player: Cell = None;
+                let mut current_count: u8 = 0;
+                for &(x, y) in coords {
+                    let rectangular_placeholder = None;
+                    let line = mo.get_cell( x, y).unwrap_or(rectangular_placeholder);
+                    if current_player.is_some() && line == current_player {
+                        current_count += 1;
+                    } else {
+                        current_player = line;
+                        current_count = 1; // note that Optional goes into the count too but it's all right
+                    }
+                    let won = current_player.is_some() && current_count >= WIN_LEN;
+                    if won {
+                        return current_player;
+                    }
                 }
             }
+            None
         }
-        None
+        let mut iterators: Vec<fn(u8, u8) -> Vec<Vec<Coords>>> = vec![
+            make_rows_iterator,
+            make_columns_iterator,
+            make_diagonal_l_iterator,
+            make_diagonal_r_iterator
+        ];
+        iterators.into_iter()
+            .map(move |f| try_winner_for_iteration(&f(self.size_x, self.size_y), self))
+            .find(|&c| c.is_some())
+            .unwrap_or(None)
     }
     fn is_finished(&self) -> bool {
         self.try_winner().is_some()
@@ -296,6 +341,7 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use crate::db::GameStateSerialized;
     use crate::game::GameOperations;
     use crate::game::GameSerializations;
     use crate::game::Player::*;
@@ -328,6 +374,24 @@ mod tests {
 7 0 0 0 0 0 0
 0 0 0 0 0 0 0
 0 0 0 0 0 0 0
+    "#;
+    const GAME_DIAGONAL_RED_WON: &str = r#"
+1 0 0 0  0  0 0
+2 3 0 0  0  0 0
+4 6 7 0  0  0 0
+0 0 0 11 10 9 8
+0 0 0 0  0  0 0
+0 0 0 0  0  0 0
+0 0 0 0  0  0 5
+    "#;
+    const GAME_DIAGONAL_ALTERNATIVE_RED_WON: &str = r#"
+6 8 10 11 0 0 0
+4 5 7  0  0 0 0
+2 3 0  0  0 0 0
+1 0 0  0  0 0 0
+9 0 0  0  0 0 0
+0 0 0  0  0 0 0
+0 0 0  0  0 0 0
     "#;
     const GAME_ONGOING: &str = r#"
 1  0  0  0  0 0  2
@@ -380,42 +444,52 @@ mod tests {
     "#;
     #[test]
     fn serializations() {
-        let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string().into()).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_NAIVE_HORIZONTAL_WON.to_string())).unwrap();
         assert_eq!(GAME_NAIVE_HORIZONTAL_WON.to_string().trim(), state.serialize().0)
     }
     #[test]
     fn winner_horizontal() {
-        let state = super::State::deserialize(GAME_NAIVE_HORIZONTAL_WON.to_string().into()).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_NAIVE_HORIZONTAL_WON.to_string())).unwrap();
         assert!(!state.is_stalemate());
         assert_eq!(Some(Red), state.try_winner())
     }
     #[test]
     fn winner_vertical() {
-        let state = super::State::deserialize(GAME_NAIVE_VERTICAL_WON.to_string().into()).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_NAIVE_VERTICAL_WON.to_string())).unwrap();
         assert!(!state.is_stalemate());
         assert_eq!(Some(Red), state.try_winner())
     }
     #[test]
+    fn winner_diagonal() {
+        let state = super::State::deserialize(&GameStateSerialized(GAME_DIAGONAL_RED_WON.to_string())).unwrap();
+        assert_eq!(Some(Red), state.try_winner())
+    }
+    #[test]
+    fn winner_diagonal_alternative() {
+        let state = super::State::deserialize(&GameStateSerialized(GAME_DIAGONAL_ALTERNATIVE_RED_WON.to_string())).unwrap();
+        assert_eq!(Some(Red), state.try_winner())
+    }
+    #[test]
     fn winner_vertical_blue() {
-        let state = super::State::deserialize(GAME_VERTICAL_BLUE_WON.to_string().into()).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_VERTICAL_BLUE_WON.to_string())).unwrap();
         assert!(!state.is_stalemate());
         assert_eq!(Some(Blue), state.try_winner())
     }
     #[test]
     fn game_ongoing() {
-        let state = super::State::deserialize(GAME_ONGOING.to_string().into()).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_ONGOING.to_string())).unwrap();
         assert!(!state.is_stalemate());
         assert!(!state.is_finished());
         assert_eq!(None, state.try_winner())
     }
     #[test]
     fn game_stalemate() {
-        let state = super::State::deserialize(GAME_STALEMATE.to_string().into()).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_STALEMATE.to_string())).unwrap();
         assert!(state.is_stalemate())
     }
     #[test]
     fn winning_turn() {
-        let mut state = super::State::deserialize(GAME_BLUE_WINNING.to_string().into()).unwrap();
+        let mut state = super::State::deserialize(&GameStateSerialized(GAME_BLUE_WINNING.to_string())).unwrap();
         assert!(!state.is_finished());
         state.push((Blue, 0, Right)).unwrap();
         assert!(state.is_finished());
@@ -424,17 +498,17 @@ mod tests {
     #[test]
     #[should_panic]
     fn not_a_square() {
-        let mut state = super::State::deserialize(GAME_NOT_SQUARE.to_string().into()).unwrap();
+        let mut state = super::State::deserialize(&GameStateSerialized(GAME_NOT_SQUARE.to_string())).unwrap();
         state.push((Blue, 0, Right)).unwrap();
     }
     #[test]
     fn bug1() {
-        let mut state = super::State::deserialize(GAME_WINNER_ALGORITHM_BUG_1.to_string().into()).unwrap();
+        let mut state = super::State::deserialize(&GameStateSerialized(GAME_WINNER_ALGORITHM_BUG_1.to_string())).unwrap();
         assert_eq!(None, state.try_winner())
     }
     #[test]
     fn many_turns() {
-        let mut state = super::State::deserialize(GAME_EMPTY.to_string().into()).unwrap();
+        let mut state = super::State::deserialize(&GameStateSerialized(GAME_EMPTY.to_string())).unwrap();
         state.push((Red, 0, Right)).unwrap();
         state.push((Blue, 1, Right)).unwrap();
         state.push((Red, 0, Right)).unwrap();
