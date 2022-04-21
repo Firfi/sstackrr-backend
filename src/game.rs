@@ -36,6 +36,7 @@ pub enum Side {
 type Height = u8; // the vertical axis, sides are to the left/right of it
 
 pub type Turn = (Player, Height, Side);
+pub type Move = (Height, Side);
 pub type CoordsHistory = Vec<Coords>;
 type Cell = Option<Player>;
 type Field = Vec<Cell>;
@@ -106,6 +107,7 @@ pub trait GameOperations<T: MatrixOperations = Self> {
     fn try_winner(&self) -> Cell;
     fn is_finished(&self) -> bool;
     fn is_stalemate(&self) -> bool;
+    fn possible_moves(&self) -> Vec<Move>;
 }
 
 // todo really, iterators
@@ -220,6 +222,23 @@ impl GameOperations for State {
     fn is_stalemate(&self) -> bool {
         !self.is_finished() && self.size_x as usize * self.size_y as usize == self.coords_history.len()
     }
+    fn possible_moves(&self) -> Vec<Move> {
+        if self.is_finished() {
+            return Vec::new();
+        }
+        if self.is_stalemate() {
+            return Vec::new();
+        }
+        let mut bruteforce = Vec::new();
+        for y in 0..self.size_y {
+            bruteforce.push((y as Height, Side::Left));
+            bruteforce.push((y as Height, Side::Right));
+        }
+        let player = self.next_player().unwrap();
+        bruteforce.into_iter().filter(move |(y, side)| {
+            self.validate_turn((player, y.clone(), side.clone())).is_ok()
+        }).collect()
+    }
 }
 
 pub trait GameSerializations<T: MatrixOperations = Self> {
@@ -308,7 +327,7 @@ impl GameSerializations for State {
 
 impl State {
 
-    pub fn push(&mut self, turn: Turn) -> Result<(), String> {
+    fn validate_turn(&self, turn: Turn) -> Result<(), String> {
         if !self.can_continue() {
             return Err("Game is over".into());
         }
@@ -319,6 +338,12 @@ impl State {
         if next.is_none() {
             return Err(format!("Can't push turn {} {} {}", turn.0, turn.1, turn.2));
         }
+        Ok(())
+    }
+
+    pub fn push(&mut self, turn: Turn) -> Result<(), String> {
+        self.validate_turn(turn)?;
+        let next = self.next_cell_towards(turn.2.clone(), turn.1 as u8)?;
         // self.history.push(turn.clone());
         self.coords_history.push(next.unwrap());
         let next_ = next.unwrap(); // already checked above
@@ -342,10 +367,11 @@ impl State {
 #[cfg(test)]
 mod tests {
     use crate::db::GameStateSerialized;
-    use crate::game::GameOperations;
+    use crate::db_schema::EMPTY_STATE;
+    use crate::game::{GameOperations, Height, Move};
     use crate::game::GameSerializations;
     use crate::game::Player::*;
-    use crate::game::Side::Right;
+    use crate::game::Side::{Left, Right};
 
     // players are taking turns exclusively in the middle of the board, red going only left, blue going only right
     const GAME_NAIVE_HORIZONTAL_WON: &str = r#"
@@ -397,6 +423,15 @@ mod tests {
 1  0  0  0  0 0  2
 3  9  11 12 0 10 4
 5  0  0  0  0 16 6
+14 0  0  0  0 0 0
+7  0  0  0  0 0 8
+13 15 17 0  0 0 18
+0  0  0  0  0 0 0
+    "#;
+    const GAME_CLOGGED: &str = r#"
+1  0  0  0  0 0  2
+3  9  11 12 19 10 4
+5  23 22 21 20 16 6
 14 0  0  0  0 0 0
 7  0  0  0  0 0 8
 13 15 17 0  0 0 18
@@ -518,5 +553,21 @@ mod tests {
         assert!(!state.is_finished());
         state.push((Red, 0, Right)).unwrap();
         assert!(state.is_finished());
+    }
+    #[test]
+    fn possible_moves_empty() {
+        let mut state = super::State::deserialize(&GameStateSerialized(GAME_EMPTY.to_string())).unwrap();
+        assert_eq!(vec![(0, Left), (0, Right), (1, Left), (1, Right), (2, Left), (2, Right), (3, Left), (3, Right), (4, Left), (4, Right)], state.possible_moves());
+    }
+    #[test]
+    fn possible_moves_nogame() {
+        let mut state = super::State::deserialize(&GameStateSerialized(GAME_STALEMATE.to_string())).unwrap();
+        let v: Vec<Move> = Vec::new();
+        assert_eq!(v, state.possible_moves());
+    }
+    #[test]
+    fn possible_moves_cloggedgame() {
+        let mut state = super::State::deserialize(&GameStateSerialized(GAME_CLOGGED.to_string())).unwrap();
+        assert_eq!(vec![(0, Left), (0, Right), (3, Left), (3, Right), (4, Left), (4, Right), (5, Left), (5, Right), (6, Left), (6, Right)], state.possible_moves());
     }
 }

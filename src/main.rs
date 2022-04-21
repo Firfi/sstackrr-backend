@@ -7,6 +7,8 @@ extern crate diesel;
 extern crate diesel_migrations;
 #[macro_use]
 extern crate diesel_derive_newtype;
+#[macro_use]
+extern crate diesel_derive_enum;
 extern crate dotenv;
 use dotenv::dotenv;
 mod game;
@@ -14,8 +16,12 @@ mod graphql;
 mod db;
 mod db_schema;
 mod broker;
+mod adversary;
+mod db_schema_macro;
 
 use std::env;
+
+use crate::adversary::run_subscribe_bots;
 
 use async_graphql::{
     http::{playground_source, GraphQLPlaygroundConfig},
@@ -62,7 +68,7 @@ async fn main() {
 
     println!("{}", format!("Playground: http://localhost:{}", &port));
 
-    tokio::join!(axum::Server::bind(&format!("0.0.0.0:{}", &port).parse().unwrap())
+    tokio::join!(run_subscribe_bots(), axum::Server::bind(&format!("0.0.0.0:{}", &port).parse().unwrap())
         .serve(app.into_make_service()));
 
 }

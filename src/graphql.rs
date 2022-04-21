@@ -4,6 +4,7 @@ use crate::game::GameSerializations;
 use async_graphql::{FieldResult, Object, SimpleObject, InputObject, Schema, Subscription};
 use async_graphql::futures_util::Stream;
 use tokio_stream::StreamExt;
+use crate::adversary::BotId;
 use crate::broker::SimpleBroker;
 use crate::db_schema::DbGame;
 
@@ -67,8 +68,8 @@ pub(crate) struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
-    async fn init_game(&self) -> FieldResult<GameStateResult> {
-        Ok(GameStateResult::from_db_game(&init_game_state().await?))
+    async fn init_game(&self, bot_id: Option<BotId>) -> FieldResult<GameStateResult> {
+        Ok(GameStateResult::from_db_game(&init_game_state(bot_id).await?))
     }
     async fn claim_player(&self, game_token: GameToken, player: Player) -> Result<ClaimPlayerResult, String> {
         let (id, db_game) = claim_game_player(&game_token, player).await?;
@@ -84,7 +85,7 @@ impl MutationRoot {
         let player = db_game_and_player.player;
         let mut state = game_from_db_game(&db_game)?;
         state.push((player, turn.height, turn.side))?;
-        let new_db_game = update_game_state(&player_token, state.serialize()).await?;
+        let new_db_game = update_game_state(&db_game.id, state.serialize()).await?;
         Ok(GameStateResult::from_db_game(&new_db_game))
     }
 }

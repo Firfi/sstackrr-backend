@@ -8,6 +8,7 @@ use diesel::{
     pg::PgConnection
 };
 use uuid::Uuid;
+use crate::adversary::BotId;
 use crate::broker::SimpleBroker;
 use crate::game::Player;
 
@@ -55,9 +56,10 @@ pub struct PlayerToken(pub Uuid);
 #[derive(Clone, Debug, NewType, DieselNewType, PartialEq, Eq, Hash)]
 pub struct GameToken(pub Uuid);
 
-pub(crate) async fn init_game_state() -> Result<DbGame, String> {
-    use crate::db_schema::games::dsl::*;
-    let new_game = DbGame::new();
+pub(crate) async fn init_game_state(bot: Option<BotId>) -> Result<DbGame, String> {
+    use crate::db_schema_macro::games::dsl::*;
+    let mut new_game = DbGame::new();
+    new_game.bot_id = bot;
     let conn: &PgConnection = &STATICS.db_connection.get().unwrap();
     let r = diesel::insert_into(games)
         .values(&new_game)
@@ -71,13 +73,13 @@ pub struct DbGameAndPlayer {
 }
 
 pub(crate) async fn fetch_game_state(game_token: &GameToken) -> Result<DbGame, String> {
-    use crate::db_schema::games::dsl::*;
+    use crate::db_schema_macro::games::dsl::*;
     let game = &games.filter(id.eq(game_token)).first::<DbGame>(&STATICS.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     Ok(game.clone())
 }
 
 pub(crate) async fn fetch_game_state_for_player(player_token: &PlayerToken) -> Result<DbGameAndPlayer, String> {
-    use crate::db_schema::games::dsl::*;
+    use crate::db_schema_macro::games::dsl::*;
     let token = player_token.0;
     let game = &games.filter(player_red.eq(token).or(player_blue.eq(token))).first::<DbGame>(&STATICS.db_connection.get().unwrap()).map_err(|e| e.to_string())?;
     // warn: non exhaustive
@@ -89,9 +91,9 @@ pub(crate) async fn fetch_game_state_for_player(player_token: &PlayerToken) -> R
     Ok(DbGameAndPlayer { game: game.clone(), player })
 }
 
-pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSerialized) -> Result<DbGame, String> {
-    use crate::db_schema::games::dsl::*;
-    let mut game = fetch_game_state_for_player(player_token).await?.game;
+pub(crate) async fn update_game_state(game_token: &GameToken, s: GameStateSerialized) -> Result<DbGame, String> {
+    use crate::db_schema_macro::games::dsl::*;
+    let mut game = fetch_game_state(game_token).await?;
     let conn: &PgConnection = &STATICS.db_connection.get().unwrap();
     game.state = s.clone();
     let r = diesel::update(&game)
@@ -103,9 +105,12 @@ pub(crate) async fn update_game_state(player_token: &PlayerToken, s: GameStateSe
 }
 
 pub(crate) async fn claim_game_player(game_token: &GameToken, player: Player) -> Result<(Uuid, DbGame), String> {
-    use crate::db_schema::games::dsl::*;
+    use crate::db_schema_macro::games::dsl::*;
     let conn: &PgConnection = &STATICS.db_connection.get().unwrap();
     let game = games.filter(id.eq(game_token)).first::<DbGame>(conn).map_err(|e| e.to_string())?.clone();
+    if !game.can_player_join(&player) {
+        return Err("game is full".to_string());
+    }
     let new_id = Uuid::new_v4();
     let statement = match player {
         Player::Red => {
