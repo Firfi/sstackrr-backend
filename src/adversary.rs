@@ -65,9 +65,7 @@ pub async fn try_bot(db_game: &DbGame) {
     let player = state.next_player().unwrap();
 
     let bmove = bot_move(&bot_id, &state);
-
-    println!("bmove {:?}", bmove);
-
+    
     match bmove {
         Some(m) => {
             state.push((player, m.0, m.1)).unwrap(); // there is a possible move, safe to unwrap
