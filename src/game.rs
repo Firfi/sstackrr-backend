@@ -326,33 +326,6 @@ impl WinnerCache for State {
         }
 
         None
-
-        // fn try_winner_for_iteration(iter: &Vec<Vec<Coords>>, mo: &dyn MatrixOperations) -> Cell {
-        //     for coords in iter {
-        //         let mut current_player: Cell = None;
-        //         let mut current_count: u8 = 0;
-        //         for &(x, y) in coords {
-        //             let rectangular_placeholder = None;
-        //             let line = mo.get_cell( x, y).unwrap_or(rectangular_placeholder);
-        //             if current_player.is_some() && line == current_player {
-        //                 current_count += 1;
-        //             } else {
-        //                 current_player = line;
-        //                 current_count = 1; // note that Optional goes into the count too but it's all right
-        //             }
-        //             let won = current_player.is_some() && current_count >= WIN_LEN;
-        //             if won {
-        //                 return current_player;
-        //             }
-        //         }
-        //     }
-        //     None
-        // }
-        //
-        // self.line_iterators().into_iter()
-        //     .map(move |f| try_winner_for_iteration(&f(self.size_x, self.size_y), self))
-        //     .find(|&c| c.is_some())
-        //     .unwrap_or(None)
     }
 
 }
