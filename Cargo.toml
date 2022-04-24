@@ -31,3 +31,4 @@ diesel-derive-newtype = "0.1.2" # at the moment, the source code is ancient, but
 diesel-derive-enum = { version = "1", features = ["postgres"] } # "postgres", "mysql" or "sqlite"
 dotenv = "0.15.0"
 lazy_static = "1.4.0"
+moka = "0.8.2"

@@ -1,4 +1,4 @@
-use crate::db::{claim_game_player, fetch_game_state_for_player, GameStateSerialized, GameToken, init_game_state, PlayerToken, update_game_state, fetch_game_state};
+use crate::db::{claim_game_player, fetch_game_state_for_player, GameToken, init_game_state, PlayerToken, update_game_state, fetch_game_state};
 use crate::game::{GameOperations, Player, Side, State};
 use crate::game::GameSerializations;
 use async_graphql::{FieldResult, Object, SimpleObject, InputObject, Schema, Subscription};

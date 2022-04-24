@@ -57,22 +57,24 @@ pub struct DbGamePlayerBlueUpdate {
     pub player_blue: PlayerToken,
 }
 
-// default side is 7, and it's a square
-pub const EMPTY_STATE: &str = r#"
-0 0 0 0 0 0 0
-0 0 0 0 0 0 0
-0 0 0 0 0 0 0
-0 0 0 0 0 0 0
-0 0 0 0 0 0 0
-0 0 0 0 0 0 0
-0 0 0 0 0 0 0
-    "#;
+pub const DEFAULT_GAME_SIZE: u8 = 7;
+
+pub fn empty_state(width: u8, height: u8) -> String {
+    let mut res = String::new();
+    for _ in 0..height {
+        for _ in 0..width {
+            res.push_str("0 ");
+        }
+        res.push_str("\n");
+    }
+    res
+}
 
 impl DbGame {
-    pub fn new() -> DbGame {
+    pub fn new(width: u8, height: u8) -> DbGame {
         DbGame {
             id: GameToken(Uuid::new_v4()),
-            state: EMPTY_STATE.trim().into(),
+            state: empty_state(width, height).trim().into(),
             player_red: None,
             player_blue: None,
             bot_id: None,

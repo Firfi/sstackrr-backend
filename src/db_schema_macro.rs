@@ -1,6 +1,6 @@
 table! {
     use crate::adversary::BotIdMapping;
-    use diesel::types::{Uuid, Text, Nullable};
+    use diesel::sql_types::{Nullable, Text, Uuid};
     games {
         id -> Uuid,
         state -> Text,

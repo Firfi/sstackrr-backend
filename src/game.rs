@@ -4,10 +4,11 @@ use std::str::SplitWhitespace;
 use strum_macros;
 use async_graphql::Enum;
 use crate::db::GameStateSerialized;
+use crate::game::Player::{Blue, Red};
 
 // code assumes our field is at least 1x1
 const MIN_DIM: u8 = 1;
-const WIN_LEN: u8 = 4;
+pub const WIN_LEN: u8 = 4;
 
 const SERIALIZATION_COL_SEPARATOR: &str = " "; // "separate" cols from each other, but "split" rows
 // reuse and keep near SERIALIZATION_COL_SEPARATOR
@@ -46,10 +47,11 @@ pub struct State {
     size_x: u8,
     size_y: u8,
     coords_history: CoordsHistory, // actually, we can do with Only this field
-    field: Field // derivative to History+sizes but here for convenience and performance
+    field: Field, // derivative to History+sizes but here for convenience and performance
+    winner_cache: Cell
 }
 
-type Coords = (u8, u8);
+pub(crate) type Coords = (u8, u8);
 
 fn calc_field_index(size_x: u8, x: u8, y: u8) -> u8 {
     y * size_x/*or size_y?*/ + x
@@ -64,6 +66,10 @@ pub trait MatrixOperations {
     fn calc_field_index(&self, x: u8, y: u8) -> u8;
     fn get_cell(&self, x: u8, y: u8) -> Result<Cell, String>;
     fn next_cell_towards(&self, direction: Side, y: u8) -> Result<Option<Coords>, String>;
+    fn size_x(&self) -> u8;
+    fn size_y(&self) -> u8;
+    fn line_iterators(&self) -> Vec<fn(u8, u8) -> Vec<Vec<Coords>>>;
+    fn lines(&self) -> Vec<Vec<Vec<Coords>>>;
 }
 
 impl MatrixOperations for State {
@@ -98,16 +104,38 @@ impl MatrixOperations for State {
         }
         Ok(None)
     }
+    fn size_x(&self) -> u8 {
+        self.size_x
+    }
+    fn size_y(&self) -> u8 {
+        self.size_y
+    }
+    fn line_iterators(&self) -> Vec<fn(u8, u8) -> Vec<Vec<Coords>>> {
+        vec![
+            make_rows_iterator,
+            make_columns_iterator,
+            make_diagonal_l_iterator,
+            make_diagonal_r_iterator
+        ]
+    }
+    fn lines(&self) -> Vec<Vec<Vec<Coords>>> {
+        self.line_iterators().iter().map(|f| f(self.size_x(), self.size_y())).collect()
+    }
 }
 
 // game "domain" logic
 pub trait GameOperations<T: MatrixOperations = Self> {
+    fn current_depth(&self) -> u8;
+    fn max_depth(&self) -> u8;
+    fn depth_left(&self) -> u8;
     fn next_player(&self) -> Result<Player, String>;
+    fn last_player(&self) -> Result<Player, String>;
     fn can_continue(&self) -> bool;
     fn try_winner(&self) -> Cell;
     fn is_finished(&self) -> bool;
     fn is_stalemate(&self) -> bool;
     fn possible_moves(&self) -> Vec<Move>;
+    fn is_turn_winning(&self, turn: &Turn) -> bool;
 }
 
 // todo really, iterators
@@ -167,6 +195,15 @@ fn make_diagonal_r_iterator(width: u8, height: u8) -> Vec<Vec<Coords>> {
 
 
 impl GameOperations for State {
+    fn current_depth(&self) -> u8 {
+        self.coords_history.len() as u8
+    }
+    fn depth_left(&self) -> u8 {
+        self.max_depth() - self.current_depth()
+    }
+    fn max_depth(&self) -> u8 {
+        self.size_x * self.size_y
+    }
     fn next_player(&self) -> Result<Player, String> {
         if !self.can_continue() {
             return Err("Game is over".into());
@@ -180,41 +217,16 @@ impl GameOperations for State {
             None => FIRST_PLAYER
         })
     }
+    fn last_player(&self) -> Result<Player, String> {
+        self.coords_history.last().map(|&(x, y)| {
+            self.field[self.calc_field_index(x, y) as usize].unwrap()
+        }).ok_or("No moves yet".into())
+    }
     fn can_continue(&self) -> bool {
         !self.is_finished() && !self.is_stalemate()
     }
     fn try_winner(&self) -> Cell {
-        fn try_winner_for_iteration(iter: &Vec<Vec<Coords>>, mo: &dyn MatrixOperations) -> Cell {
-            for coords in iter {
-                let mut current_player: Cell = None;
-                let mut current_count: u8 = 0;
-                for &(x, y) in coords {
-                    let rectangular_placeholder = None;
-                    let line = mo.get_cell( x, y).unwrap_or(rectangular_placeholder);
-                    if current_player.is_some() && line == current_player {
-                        current_count += 1;
-                    } else {
-                        current_player = line;
-                        current_count = 1; // note that Optional goes into the count too but it's all right
-                    }
-                    let won = current_player.is_some() && current_count >= WIN_LEN;
-                    if won {
-                        return current_player;
-                    }
-                }
-            }
-            None
-        }
-        let mut iterators: Vec<fn(u8, u8) -> Vec<Vec<Coords>>> = vec![
-            make_rows_iterator,
-            make_columns_iterator,
-            make_diagonal_l_iterator,
-            make_diagonal_r_iterator
-        ];
-        iterators.into_iter()
-            .map(move |f| try_winner_for_iteration(&f(self.size_x, self.size_y), self))
-            .find(|&c| c.is_some())
-            .unwrap_or(None)
+        self.winner_cache
     }
     fn is_finished(&self) -> bool {
         self.try_winner().is_some()
@@ -229,22 +241,120 @@ impl GameOperations for State {
         if self.is_stalemate() {
             return Vec::new();
         }
-        let mut bruteforce = Vec::new();
-        for y in 0..self.size_y {
-            bruteforce.push((y as Height, Side::Left));
-            bruteforce.push((y as Height, Side::Right));
-        }
+        let mut res = Vec::new();
         let player = self.next_player().unwrap();
-        bruteforce.into_iter().filter(move |(y, side)| {
-            self.validate_turn((player, y.clone(), side.clone())).is_ok()
-        }).collect()
+        for i in 0..self.size_y {
+            // "better turns first" order, where the positions at the middle are prioritized https://github.com/PascalPons/connect4/commit/6caf32a4845bf1478b0d30bebd6366bfea75b7b5
+            let y = (self.size_y as i8) / 2 + (1-2 * (i % 2) as i8) * ( i as i8 + 1 ) / 2;
+            for s in vec![Side::Left, Side::Right].into_iter() {
+                if self.validate_turn((player, y.clone() as u8, s.clone())).is_ok() {
+                    res.push((y as u8, s))
+                }
+            }
+        }
+        res
+    }
+    fn is_turn_winning(&self, turn: &Turn) -> bool {
+        let (player, height, side) = turn.clone();
+        let mut bruteforce_game = self.clone();
+        let move_result = bruteforce_game.push((player, height, side));
+        if move_result.is_err() {
+            return false;
+        }
+        bruteforce_game.try_winner().is_some()
     }
 }
 
 pub trait GameSerializations<T: MatrixOperations = Self> {
     fn serialize(&self) -> GameStateSerialized;
+    fn hash_non_historical(&self) -> String;
     fn deserialize(s: &GameStateSerialized) -> Result<T, String>;
     fn to_rows(&self) -> Vec<Vec<Option<Player>>>; // for network, keep here or...?
+}
+
+trait WinnerCache<T: GameOperations + MatrixOperations = Self> {
+    fn try_winner_(&mut self) -> Cell;
+}
+
+impl WinnerCache for State {
+    fn try_winner_(&mut self) -> Cell {
+        let last_move_ = self.coords_history.last();
+        if last_move_.is_none() {
+            return Cell::None;
+        }
+        let last_move = last_move_.unwrap();
+        fn check_line(state: &State, player: Player, lc: &Coords, rc: &Coords, acc: u8, lplus: &dyn Fn(&Coords) -> Option<Coords>, rplus: &dyn Fn(&Coords) -> Option<Coords>) -> bool {
+            if acc == WIN_LEN {
+                return true;
+            }
+            let next_lc = lplus(lc);
+            let next_rc = rplus(rc);
+            if next_lc.is_none() && next_rc.is_none() {
+                return false;
+            }
+            let next_lc_player_me: bool = next_lc.and_then(|c| state.field[state.calc_field_index(c.0, c.1) as usize]).map(|p| p == player).unwrap_or(false);
+            let next_rc_player_me: bool = next_rc.and_then(|c| state.field[state.calc_field_index(c.0, c.1) as usize]).map(|p| p == player).unwrap_or(false);
+            return if next_lc_player_me {
+                check_line(state, player, &next_lc.unwrap(), &rc, acc + 1, lplus, rplus)
+            } else if next_rc_player_me {
+                check_line(state, player, &lc, &next_rc.unwrap(), acc + 1, lplus, rplus)
+            } else {
+                false
+            }
+        }
+        fn checked_coords(c: (i8, i8), state: &State) -> Option<Coords> {
+            if c.0 < 0 || c.0 >= state.size_x as i8 || c.1 < 0 || c.1 >= state.size_y as i8 {
+                return None;
+            }
+            Some((c.0 as u8, c.1 as u8))
+        }
+        let horizontal_adders = (|c: &Coords| checked_coords((c.0 as i8 - 1, c.1 as i8), &self), |c: &Coords| checked_coords((c.0 as i8 + 1, c.1 as i8), &self));
+        let vertical_adders = (|c: &Coords| checked_coords((c.0 as i8, c.1 as i8 - 1), &self), |c: &Coords| checked_coords((c.0 as i8, c.1 as i8 + 1), &self));
+        let diag_l_r_adders = (|c: &Coords| checked_coords((c.0 as i8 - 1, c.1 as i8 + 1), &self), |c: &Coords| checked_coords((c.0 as i8 + 1, c.1 as i8 - 1), &self));
+        let diag_r_l_adders = (|c: &Coords| checked_coords((c.0 as i8 - 1, c.1 as i8 - 1), &self), |c: &Coords| checked_coords((c.0 as i8 + 1, c.1 as i8 + 1), &self));
+        let fns: Vec<(Box<dyn Fn(&Coords) -> Option<Coords>>, Box<dyn Fn(&Coords) -> Option<Coords>>)> = vec![
+            (Box::new(horizontal_adders.0), Box::new(horizontal_adders.1)),
+            (Box::new(vertical_adders.0), Box::new(vertical_adders.1)),
+            (Box::new(diag_l_r_adders.0), Box::new(diag_l_r_adders.1)),
+            (Box::new(diag_r_l_adders.0), Box::new(diag_r_l_adders.1)),
+        ];
+        for adder in fns.iter() {
+            let (l, r) = adder;
+            if check_line(&self, self.last_player().unwrap(), &last_move, &last_move, 1, &**l, &**r) {
+                return self.last_player().unwrap().into();
+            }
+        }
+
+        None
+
+        // fn try_winner_for_iteration(iter: &Vec<Vec<Coords>>, mo: &dyn MatrixOperations) -> Cell {
+        //     for coords in iter {
+        //         let mut current_player: Cell = None;
+        //         let mut current_count: u8 = 0;
+        //         for &(x, y) in coords {
+        //             let rectangular_placeholder = None;
+        //             let line = mo.get_cell( x, y).unwrap_or(rectangular_placeholder);
+        //             if current_player.is_some() && line == current_player {
+        //                 current_count += 1;
+        //             } else {
+        //                 current_player = line;
+        //                 current_count = 1; // note that Optional goes into the count too but it's all right
+        //             }
+        //             let won = current_player.is_some() && current_count >= WIN_LEN;
+        //             if won {
+        //                 return current_player;
+        //             }
+        //         }
+        //     }
+        //     None
+        // }
+        //
+        // self.line_iterators().into_iter()
+        //     .map(move |f| try_winner_for_iteration(&f(self.size_x, self.size_y), self))
+        //     .find(|&c| c.is_some())
+        //     .unwrap_or(None)
+    }
+
 }
 
 fn validate_continuous<T: Copy>(v: &Vec<Option<T>>) -> Result<Vec<T>, String> {
@@ -295,6 +405,7 @@ fn deserialize_intermediate_history(s: &String) -> Result<Vec<(Coords, Player)>,
 }
 
 impl GameSerializations for State {
+
     fn serialize(&self) -> GameStateSerialized {
         let mut field: Vec<u8> = vec![0; self.size_x as usize * self.size_y as usize];
         for (hi, coords) in self.coords_history.iter().enumerate() {
@@ -304,15 +415,29 @@ impl GameSerializations for State {
         return GameStateSerialized(field.chunks(self.size_x as usize).map(|x| x.iter().map(|n|n.to_string()).collect::<Vec<String>>().join(SERIALIZATION_COL_SEPARATOR))
             .collect::<Vec<String>>().join(SERIALIZATION_ROW_SEPARATOR));
     }
+    fn hash_non_historical(&self) -> String {
+        let mut field: Vec<Cell> = vec![None; self.size_x as usize * self.size_y as usize];
+        for (j, coords) in self.coords_history.iter().enumerate() {
+            let i = self.calc_field_index(coords.0, coords.1);
+            field[i as usize] = Some(if j % 2 == 0 { Red } else { Blue });
+        }
+        return field.chunks(self.size_x as usize).map(|x| x.iter().map(|n| (match n {
+            Some(Blue) => "B",
+            Some(Red) => "R",
+            None => "_",
+        }).to_string()).collect::<Vec<String>>().join(SERIALIZATION_COL_SEPARATOR))
+            .collect::<Vec<String>>().join(SERIALIZATION_ROW_SEPARATOR);
+    }
 
     fn deserialize(s: &GameStateSerialized) -> Result<State, String> {
         let (width, height) = validate_serialized_dimensions(&s.0)?;
         let mut state = State::new(width, height);
         for (coords, player) in deserialize_intermediate_history(&s.0)?.iter() {
             state.coords_history.push(coords.clone());
-            let index = calc_field_index(height, coords.0, coords.1);
+            let index = calc_field_index(width, coords.0, coords.1);
             state.field[index as usize] = Some(player.clone());
         }
+        state.update_winner();
         Ok(state)
     }
     fn to_rows(&self) -> Vec<Vec<Option<Player>>> {
@@ -340,15 +465,23 @@ impl State {
         }
         Ok(())
     }
-
+    pub fn push_move(&mut self, move_: Move) -> Result<(), String> {
+        let player = self.next_player()?;
+        let turn = (player, move_.0, move_.1);
+        self.push(turn)
+    }
+    fn update_winner(&mut self) -> () {
+        self.winner_cache = self.try_winner_();
+    }
     pub fn push(&mut self, turn: Turn) -> Result<(), String> {
         self.validate_turn(turn)?;
         let next = self.next_cell_towards(turn.2.clone(), turn.1 as u8)?;
         // self.history.push(turn.clone());
         self.coords_history.push(next.unwrap());
         let next_ = next.unwrap(); // already checked above
-        let index =  self.calc_field_index(next_.0, next_.1) as usize;
+        let index =  self.calc_field_index(next_.0.clone(), next_.1.clone()) as usize;
         self.field[index] = Some(turn.0);
+        self.update_winner();
         Ok(())
     }
     pub fn pop(&mut self) -> Result<(), String> {
@@ -356,19 +489,20 @@ impl State {
         let coords = self.coords_history.pop().ok_or_else(|| String::from("No turns to pop"))?;
         let index = self.calc_field_index(coords.0, coords.1) as usize;
         self.field[index] = None;
+        self.winner_cache = None;
         Ok(())
     }
     pub fn new(size_x: u8, size_y: u8) -> State {
         let size_xy = size_x as usize * size_y as usize;
-        State { size_x, size_y, coords_history: Vec::with_capacity(size_xy), field: vec![None; size_xy] }
+        State { size_x, size_y, coords_history: Vec::with_capacity(size_xy), field: vec![None; size_xy], winner_cache: None }
     }
 }
+
 
 #[cfg(test)]
 mod tests {
     use crate::db::GameStateSerialized;
-    use crate::db_schema::EMPTY_STATE;
-    use crate::game::{GameOperations, Height, Move};
+    use crate::game::{calc_field_index, GameOperations, Move};
     use crate::game::GameSerializations;
     use crate::game::Player::*;
     use crate::game::Side::{Left, Right};
@@ -478,6 +612,12 @@ mod tests {
 0  0  0  0 0  0  0
     "#;
     #[test]
+    fn calc_field_index_rect_test() {
+        assert_eq!(calc_field_index(3,  1, 1), 4);
+        assert_eq!(calc_field_index(3,  2, 1), 5);
+        assert_eq!(calc_field_index(4,  1, 1), 5);
+    }
+    #[test]
     fn serializations() {
         let state = super::State::deserialize(&GameStateSerialized(GAME_NAIVE_HORIZONTAL_WON.to_string())).unwrap();
         assert_eq!(GAME_NAIVE_HORIZONTAL_WON.to_string().trim(), state.serialize().0)
@@ -538,7 +678,7 @@ mod tests {
     }
     #[test]
     fn bug1() {
-        let mut state = super::State::deserialize(&GameStateSerialized(GAME_WINNER_ALGORITHM_BUG_1.to_string())).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_WINNER_ALGORITHM_BUG_1.to_string())).unwrap();
         assert_eq!(None, state.try_winner())
     }
     #[test]
@@ -556,18 +696,29 @@ mod tests {
     }
     #[test]
     fn possible_moves_empty() {
-        let mut state = super::State::deserialize(&GameStateSerialized(GAME_EMPTY.to_string())).unwrap();
-        assert_eq!(vec![(0, Left), (0, Right), (1, Left), (1, Right), (2, Left), (2, Right), (3, Left), (3, Right), (4, Left), (4, Right)], state.possible_moves());
+        let state = super::State::deserialize(&GameStateSerialized(GAME_EMPTY.to_string())).unwrap();
+        assert_eq!(vec![(2, Left), (2, Right), (1, Left), (1, Right), (3, Left), (3, Right), (0, Left), (0, Right), (4, Left), (4, Right)], state.possible_moves());
     }
     #[test]
     fn possible_moves_nogame() {
-        let mut state = super::State::deserialize(&GameStateSerialized(GAME_STALEMATE.to_string())).unwrap();
+        let state = super::State::deserialize(&GameStateSerialized(GAME_STALEMATE.to_string())).unwrap();
         let v: Vec<Move> = Vec::new();
         assert_eq!(v, state.possible_moves());
     }
     #[test]
     fn possible_moves_cloggedgame() {
-        let mut state = super::State::deserialize(&GameStateSerialized(GAME_CLOGGED.to_string())).unwrap();
-        assert_eq!(vec![(0, Left), (0, Right), (3, Left), (3, Right), (4, Left), (4, Right), (5, Left), (5, Right), (6, Left), (6, Right)], state.possible_moves());
+        let state = super::State::deserialize(&GameStateSerialized(GAME_CLOGGED.to_string())).unwrap();
+        assert_eq!(vec![(3, Left), (3, Right), (4, Left), (4, Right), (5, Left), (5, Right), (0, Left), (0, Right), (6, Left), (6, Right)], state.possible_moves());
+    }
+    #[test]
+    fn hashing() {
+        let state = super::State::deserialize(&GameStateSerialized(r#"
+0 0 0 0 0
+0 0 0 0 4
+0 0 7 5 3
+0 0 0 2 1
+0 0 0 0 6
+    "#.to_string())).unwrap();
+        assert_eq!(state.hash_non_historical(), "_ _ _ _ _\n_ _ _ _ B\n_ _ R R R\n_ _ _ B R\n_ _ _ _ B");
     }
 }

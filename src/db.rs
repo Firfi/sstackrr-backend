@@ -1,7 +1,8 @@
+use std::cmp::max;
 use diesel::prelude::*;
 use std::env;
 use async_graphql::NewType;
-use crate::db_schema::{DbGame, DbGamePlayerRedUpdate, DbGamePlayerBlueUpdate};
+use crate::db_schema::{DbGame, DbGamePlayerRedUpdate, DbGamePlayerBlueUpdate, DEFAULT_GAME_SIZE};
 use lazy_static::lazy_static;
 use diesel::{
     r2d2::{Pool, ConnectionManager},
@@ -9,6 +10,7 @@ use diesel::{
 };
 use uuid::Uuid;
 use crate::adversary::BotId;
+use crate::adversary::BotId::SMART;
 use crate::broker::SimpleBroker;
 use crate::game::Player;
 
@@ -36,8 +38,31 @@ pub fn run_embed_migrations() {
     embedded_migrations::run(&STATICS.db_connection.get().unwrap());
 }
 
-#[derive(Clone, Debug, DieselNewType, PartialEq, Eq, Hash)]
+#[derive(Clone, DieselNewType, PartialEq, Eq, Hash)]
 pub struct GameStateSerialized(pub String);
+
+impl std::fmt::Debug for GameStateSerialized {
+
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("GameStateSerialized(\n");
+        let lines = self.0.split('\n');
+        let mut paddings = vec![0; lines.clone().count()];
+        lines.clone().for_each(|line| {
+            line.split_whitespace().enumerate().for_each(|(i, c)| {
+                paddings[i] = max(paddings[i], c.len());
+            });
+        });
+        lines.clone().for_each(|line| {
+            for (i, c) in line.split_whitespace().enumerate() {
+                f.write_str(" ").unwrap();
+                f.write_str(format!("{: <1$}", c, paddings[i] as usize).as_str()).unwrap();
+                f.write_str(" ").unwrap();
+            }
+            f.write_str("\n").unwrap();
+        });
+        f.write_str(")\n")
+    }
+}
 
 impl From<std::string::String> for GameStateSerialized {
     fn from(s: std::string::String) -> Self {
@@ -58,7 +83,8 @@ pub struct GameToken(pub Uuid);
 
 pub(crate) async fn init_game_state(bot: Option<BotId>) -> Result<DbGame, String> {
     use crate::db_schema_macro::games::dsl::*;
-    let mut new_game = DbGame::new();
+    let mut new_game = DbGame::new(if bot == Some(SMART) {4} else {DEFAULT_GAME_SIZE},
+                                   if bot == Some(SMART) {5} else {DEFAULT_GAME_SIZE});
     new_game.bot_id = bot;
     let conn: &PgConnection = &STATICS.db_connection.get().unwrap();
     let r = diesel::insert_into(games)
@@ -92,7 +118,7 @@ pub(crate) async fn fetch_game_state_for_player(player_token: &PlayerToken) -> R
 }
 
 pub(crate) async fn update_game_state(game_token: &GameToken, s: GameStateSerialized) -> Result<DbGame, String> {
-    use crate::db_schema_macro::games::dsl::*;
+    // use crate::db_schema_macro::games::dsl::*;
     let mut game = fetch_game_state(game_token).await?;
     let conn: &PgConnection = &STATICS.db_connection.get().unwrap();
     game.state = s.clone();

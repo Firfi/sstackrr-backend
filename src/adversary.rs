@@ -1,15 +1,16 @@
-use std::str::FromStr;
 use crate::broker::SimpleBroker;
-use crate::db::{fetch_game_state, GameToken, update_game_state};
+use crate::db::{fetch_game_state};
 use crate::db_schema::DbGame;
 use crate::game::{GameOperations, GameSerializations, Move, Player, State};
 use futures_util::StreamExt;
 use rand::prelude::SliceRandom;
+use crate::adversary_minimax::{minimax, MINMAX_DEPTH_RESTRICTION};
+use crate::db::update_game_state;
 
 #[derive(Debug, Clone, Copy, DbEnum, Eq, PartialEq, async_graphql::Enum)]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BotId {
-    RANDY,
+    RANDY, SMART
 }
 
 impl From<String> for BotId {
@@ -18,6 +19,9 @@ impl From<String> for BotId {
             "RANDY" => BotId::RANDY,
             "Randy" => BotId::RANDY,
             "randy" => BotId::RANDY,
+            "SMART" => BotId::SMART,
+            "Smart" => BotId::SMART,
+            "smart" => BotId::SMART,
             _ => panic!("Unknown bot id"),
         }
     }
@@ -65,7 +69,7 @@ pub async fn try_bot(db_game: &DbGame) {
     let player = state.next_player().unwrap();
 
     let bmove = bot_move(&bot_id, &state);
-    
+
     match bmove {
         Some(m) => {
             state.push((player, m.0, m.1)).unwrap(); // there is a possible move, safe to unwrap
@@ -77,13 +81,35 @@ pub async fn try_bot(db_game: &DbGame) {
     };
 }
 
+fn randy(game: &State) -> Option<Move> {
+    let mut rng = rand::thread_rng();
+    let mut actions = game.possible_moves();
+    actions.shuffle(&mut rng);
+    actions.pop()
+}
+
 fn bot_move(bot_id: &BotId, game: &State) -> Option<Move> {
     match bot_id {
         BotId::RANDY => {
-            let mut rng = rand::thread_rng();
-            let mut actions = game.possible_moves();
-            actions.shuffle(&mut rng);
-            actions.pop()
+            randy(game)
+        }
+        BotId::SMART => {
+            return match game.next_player() {
+                Err(_) => {
+                    None
+                }
+                Ok(player) => {
+                    // first 2 turns are for Randy
+                    if game.current_depth() < 2 {
+                        randy(game)
+                    } else if game.depth_left() > MINMAX_DEPTH_RESTRICTION {
+                        randy(game)
+                    } else {
+                        minimax(&mut game.clone())
+                    }
+
+                }
+            }
         }
     }
 }
