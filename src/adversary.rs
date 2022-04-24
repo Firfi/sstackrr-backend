@@ -17,11 +17,7 @@ impl From<String> for BotId {
     fn from(input: String) -> Self {
         match input.as_str() {
             "RANDY" => BotId::RANDY,
-            "Randy" => BotId::RANDY,
-            "randy" => BotId::RANDY,
             "SMART" => BotId::SMART,
-            "Smart" => BotId::SMART,
-            "smart" => BotId::SMART,
             _ => panic!("Unknown bot id"),
         }
     }
