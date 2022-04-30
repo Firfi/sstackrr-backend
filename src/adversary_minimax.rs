@@ -1,8 +1,11 @@
+use std::cell::Cell;
 use std::cmp::{max, min};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicI32, Ordering};
 use crate::db::GameStateSerialized;
 use crate::game::{Coords, GameOperations, GameSerializations, MatrixOperations, Move, Player, State, WIN_LEN};
-use moka::unsync::Cache;
+use moka::sync::Cache;
 
 pub const MINMAX_DEPTH_RESTRICTION: u8 = 15;
 
@@ -12,7 +15,7 @@ pub (crate) fn minimax(game: &State) -> Option<Move> {
     }
     let mut hm = Cache::new(10000);
     let weak = false;
-    minimax_recursion(&mut game.clone(), game.next_player().unwrap(), &mut hm, if weak { -1 } else { game.size_x() as i32 * game.size_y() as i32 / 2 * -1 }, if weak { 1 } else { game.size_x() as i32 * game.size_y() as i32 / 2 }, Some(MINMAX_DEPTH_RESTRICTION)).0
+    minimax_recursion(&mut game.clone(), game.next_player().unwrap(), &Arc::new(&mut hm), if weak { -1 } else { game.size_x() as i32 * game.size_y() as i32 / 2 * -1 }, if weak { 1 } else { game.size_x() as i32 * game.size_y() as i32 / 2 }, Some(MINMAX_DEPTH_RESTRICTION)).0
 }
 
 // collect potential scores per 4-cell windows, weighting extremes up
@@ -62,10 +65,11 @@ fn expectimax(game: &State, player: Player) -> i32 {
 }
 
 fn minimax_recursion(game: &mut State, player: Player,
-                     solutions_done: &mut Cache<String, (Option<Move>, Option<i32>)>,
+                     solutions_done: &Arc<&mut Cache<String, (Option<Move>, Option<i32>)>>,
                      mut alpha: i32,
                      mut beta: i32,
                      recommended_depth: Option<u8>) -> (Option<Move>, Option<i32>) {
+    use rayon::prelude::*;
     if recommended_depth.is_some() && recommended_depth.unwrap() == 0 {
         return (None, None);
     }
@@ -107,33 +111,38 @@ fn minimax_recursion(game: &mut State, player: Player,
     //     game.pop();
     //     a_score.cmp(&b_score)
     // });
-    let mut best_move: Option<Move> = None;
-    for m in possible_moves.into_iter() {
-        let hash_pref = game.serialize();
-        game.push_move(m).unwrap();
-        let hash = game.hash_non_historical();
-        let score = if solutions_done.contains_key(&hash) {
-            solutions_done.get(&hash).unwrap().1
+    let mut best_move: Mutex<Option<Move>> = Mutex::new(None);
+    let mut new_alpha: AtomicI32 = AtomicI32::new(alpha.clone());
+
+    possible_moves.into_par_iter().try_for_each(|m| {
+        let mut try_game = &mut game.clone();
+        try_game.push_move(m).unwrap();
+        let hash = try_game.hash_non_historical();
+        let solution_done = solutions_done.get(&hash);
+        let score = if solution_done.is_some() {
+            solution_done.unwrap().1
         } else {
-            let r = minimax_recursion(game, player, solutions_done, beta * -1, alpha * -1, recommended_depth.map(|d| d - 1)).1.map(|s| s * -1);
+            let r = minimax_recursion(try_game, player, solutions_done, beta * -1, new_alpha.load(Ordering::SeqCst) * -1, recommended_depth.map(|d| d - 1)).1.map(|s| s * -1);
             solutions_done.insert(hash, (Some(m.clone()), r.clone()));
             r
         };
 
         if score.is_some() && score.unwrap() >= beta {
-            let res = (Some(m.clone()), score);
-            game.pop().unwrap();
-            return res;
+            try_game.pop().unwrap();
+            *best_move.lock().unwrap() = Some(m.clone());
+            new_alpha.store(score.unwrap(), Ordering::SeqCst);
+            return Err(());
         }
-        if score.is_some() && score.unwrap() > alpha {
-            alpha = score.unwrap();
-            best_move = Some(m.clone());
+        if score.is_some() && score.unwrap() > new_alpha.load(Ordering::SeqCst) {
+            new_alpha.store(score.unwrap(), Ordering::SeqCst);
+            *best_move.lock().unwrap() = Some(m.clone());
         }
-        game.pop().unwrap();
-    }
+        try_game.pop().unwrap();
+        return Ok(());
+    });
 
 
-    (best_move, Some(alpha))
+    let r = (*best_move.lock().unwrap(), Some(new_alpha.load(Ordering::SeqCst))); r
 
 }
 
@@ -267,6 +276,6 @@ mod tests {
     #[test]
     fn bug_1() {
         let r = minimax(&State::deserialize(&GameStateSerialized(BUG_1.to_string())).unwrap());
-        assert_eq!(r, Some((3, Left)));
+        assert_ne!(r, None);
     }
 }
